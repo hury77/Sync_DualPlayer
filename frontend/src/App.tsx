@@ -3,7 +3,7 @@ import './index.css';
 
 function App() {
   return (
-    <div className="w-full h-screen bg-neutral-900 text-white">
+    <div className="min-h-screen bg-slate-50 text-gray-900">
       <SyncDualPlayer />
     </div>
   );
