@@ -6,7 +6,16 @@ Projekt składa się z dwóch elementów: czystego frontendu oraz minimalistyczn
 
 ## 🚀 Jak uruchomić projekt lokalnie?
 
-Zaleca się otwarcie dwóch osobnych terminali, z poziomu katalogu głównego projektu (`Sync_DualPlayer`).
+### Opcja 1: Uruchomienie jednym poleceniem (Rekomendowane)
+Przygotowałem specjalny skrypt automatyzujący. Z poziomu głównego katalogu (`Sync_DualPlayer`) wpisz po prostu w terminalu:
+
+```bash
+./start.sh
+```
+Skrypt samodzielnie uruchomi w tle oba serwery (Backend i Frontend). Aby zakończyć, wystarczy wcisnąć `Ctrl+C`.
+
+### Opcja 2: Uruchomienie ręczne w dwóch terminalach
+Jeśli wolisz mieć oddzielny podgląd na logi serwerów:
 
 ### 1. Mikro-Backend (Wymagany do wgrywania MXF)
 Ten serwer przetwarza przesyłane wideo z wykorzystaniem wbudowanego w system FFmpeg.
