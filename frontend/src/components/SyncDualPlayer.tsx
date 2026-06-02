@@ -52,6 +52,7 @@ export const SyncDualPlayer: React.FC = () => {
   // Eyedropper States
   const [isEyedropperActive, setIsEyedropperActive] = useState(false);
   const [hoverColor, setHoverColor] = useState<{ r: number, g: number, b: number, hex: string, x: number, y: number, sourceX: number, sourceY: number, sourceVideo: "acceptance" | "emission" } | null>(null);
+  const [eyedropperDrops, setEyedropperDrops] = useState<{ r: number, g: number, b: number, hex: string, sourceX: number, sourceY: number, sourceVideo: "acceptance" | "emission" }[]>([]);
 
   // Ruler States
   const [isRulerActive, setIsRulerActive] = useState(false);
@@ -516,19 +517,49 @@ export const SyncDualPlayer: React.FC = () => {
   };
 
   const handleVideoMouseDown = (e: React.MouseEvent<HTMLVideoElement>, videoRef: React.RefObject<HTMLVideoElement | null>) => {
-    if (!isRulerActive || isPlaying) return;
-    const coords = getMouseSourceCoordinates(e, videoRef);
-    if (!coords) return;
-    const sourceVideo = videoRef === acceptanceVideoRef ? "acceptance" : "emission";
-    
-    setActiveRulerLine({
-      startX: coords.sourceX,
-      startY: coords.sourceY,
-      endX: coords.sourceX,
-      endY: coords.sourceY,
-      sourceVideo,
-      color: rulerColor
-    });
+    if (isPlaying) return;
+
+    if (isRulerActive) {
+      const coords = getMouseSourceCoordinates(e, videoRef);
+      if (!coords) return;
+      const sourceVideo = videoRef === acceptanceVideoRef ? "acceptance" : "emission";
+      
+      setActiveRulerLine({
+        startX: coords.sourceX,
+        startY: coords.sourceY,
+        endX: coords.sourceX,
+        endY: coords.sourceY,
+        sourceVideo,
+        color: rulerColor
+      });
+      return;
+    }
+
+    if (isEyedropperActive) {
+      const coords = getMouseSourceCoordinates(e, videoRef);
+      if (!coords) return;
+      const { sourceX, sourceY, video } = coords;
+      const sourceVideo = videoRef === acceptanceVideoRef ? "acceptance" : "emission";
+
+      const canvas = document.createElement("canvas");
+      canvas.width = 1;
+      canvas.height = 1;
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      if (!ctx) return;
+
+      try {
+        ctx.drawImage(video, sourceX, sourceY, 1, 1, 0, 0, 1, 1);
+        const pixel = ctx.getImageData(0, 0, 1, 1).data;
+        const r = pixel[0], g = pixel[1], b = pixel[2];
+        const hex = "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1).toUpperCase();
+        
+        setEyedropperDrops(prev => [...prev, {
+          r, g, b, hex, sourceX, sourceY, sourceVideo
+        }]);
+      } catch (err) {
+        // ignore
+      }
+    }
   };
 
   const handleVideoMouseMove = (e: React.MouseEvent<HTMLVideoElement>, videoRef: React.RefObject<HTMLVideoElement | null>) => {
@@ -1024,14 +1055,22 @@ export const SyncDualPlayer: React.FC = () => {
         ctx.fillText("Do sprawdzenia", canvas.width - 178, canvas.height - 14);
       }
 
-      // Eyedropper dynamic overlay matching cursor position
+      // Eyedropper overlays (pinned drops + current hover)
+      const dropsToRender = [...eyedropperDrops];
       if (isEyedropperActive && hoverColor) {
-        const isAcc = hoverColor.sourceVideo === "acceptance";
+        dropsToRender.push({
+          r: hoverColor.r, g: hoverColor.g, b: hoverColor.b, hex: hoverColor.hex,
+          sourceX: hoverColor.sourceX, sourceY: hoverColor.sourceY, sourceVideo: hoverColor.sourceVideo
+        });
+      }
+
+      dropsToRender.forEach((drop) => {
+        const isAcc = drop.sourceVideo === "acceptance";
         const scaleX = SIDE_W / (isAcc ? accVideo.videoWidth : emiVideo.videoWidth);
         const scaleY = SIDE_H / (isAcc ? accVideo.videoHeight : emiVideo.videoHeight);
         
-        let drawX = hoverColor.sourceX * scaleX;
-        let drawY = hoverColor.sourceY * scaleY + LABEL_H;
+        let drawX = drop.sourceX * scaleX;
+        let drawY = drop.sourceY * scaleY + LABEL_H;
         if (!isAcc) drawX += SIDE_W;
 
         // Offset the box slightly from the exact pixel
@@ -1055,7 +1094,7 @@ export const SyncDualPlayer: React.FC = () => {
         ctx.stroke();
 
         // Color Swatch
-        ctx.fillStyle = hoverColor.hex;
+        ctx.fillStyle = drop.hex;
         ctx.beginPath();
         if (ctx.roundRect) {
           ctx.roundRect(drawX + 8, drawY + 8, 28, 28, 4);
@@ -1071,11 +1110,11 @@ export const SyncDualPlayer: React.FC = () => {
         ctx.font = "bold 13px 'Courier New', monospace";
         ctx.textAlign = "left";
         ctx.textBaseline = "middle";
-        ctx.fillText(hoverColor.hex, drawX + 44, drawY + 16);
+        ctx.fillText(drop.hex, drawX + 44, drawY + 16);
         ctx.fillStyle = "#94a3b8";
         ctx.font = "10px 'Courier New', monospace";
-        ctx.fillText(`RGB: ${hoverColor.r}, ${hoverColor.g}, ${hoverColor.b}`, drawX + 44, drawY + 32);
-      }
+        ctx.fillText(`RGB: ${drop.r}, ${drop.g}, ${drop.b}`, drawX + 44, drawY + 32);
+      });
 
       // Ruler overlay
       if (isRulerActive) {
@@ -1159,6 +1198,7 @@ export const SyncDualPlayer: React.FC = () => {
         a.click();
         URL.revokeObjectURL(url);
         setScreenshotSaving(false);
+        setEyedropperDrops([]);
         // Resume playback if it was playing before
         if (wasPlaying) {
           accVideo.play().catch(() => {});
@@ -1358,6 +1398,57 @@ export const SyncDualPlayer: React.FC = () => {
           );
         })}
       </svg>
+    );
+  };
+
+  const renderEyedropperOverlay = (sourceVideo: "acceptance" | "emission", containerRef: React.RefObject<HTMLVideoElement | null>) => {
+    if (!isEyedropperActive) return null;
+    
+    const video = containerRef.current;
+    if (!video || video.readyState < 2) return null;
+    
+    const rect = video.getBoundingClientRect();
+    const videoRatio = video.videoWidth / video.videoHeight;
+    const containerRatio = rect.width / rect.height;
+
+    let renderedWidth: number, renderedHeight: number, offsetX = 0, offsetY = 0;
+    if (containerRatio > videoRatio) {
+      renderedHeight = rect.height;
+      renderedWidth = rect.height * videoRatio;
+      offsetX = (rect.width - renderedWidth) / 2;
+    } else {
+      renderedWidth = rect.width;
+      renderedHeight = rect.width / videoRatio;
+      offsetY = (rect.height - renderedHeight) / 2;
+    }
+
+    const mapToScreen = (sx: number, sy: number) => ({
+      x: (sx / video.videoWidth) * renderedWidth + offsetX,
+      y: (sy / video.videoHeight) * renderedHeight + offsetY
+    });
+
+    return (
+      <div className="absolute top-0 left-0 w-full h-full pointer-events-none z-20 overflow-hidden">
+        {eyedropperDrops.filter(d => d.sourceVideo === sourceVideo).map((drop, i) => {
+          const pos = mapToScreen(drop.sourceX, drop.sourceY);
+          return (
+            <div 
+              key={i}
+              className="absolute pointer-events-none flex items-center bg-gray-900/95 text-white rounded-xl shadow-2xl border border-gray-700/50 p-2 backdrop-blur-md"
+              style={{ left: pos.x + 10, top: pos.y + 10 }}
+            >
+              <div 
+                className="w-8 h-8 rounded-md border-2 border-white/20 shadow-inner mr-2"
+                style={{ backgroundColor: drop.hex }}
+              ></div>
+              <div className="flex flex-col font-mono text-[10px] pr-1">
+                <span className="font-bold text-gray-100 mb-0.5 tracking-wider">{drop.hex}</span>
+                <span className="text-gray-400">RGB: <span className="text-gray-200">{drop.r},{drop.g},{drop.b}</span></span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
     );
   };
 
@@ -1597,6 +1688,7 @@ export const SyncDualPlayer: React.FC = () => {
               </div>
             )}
             {renderRulerOverlay("acceptance", acceptanceVideoRef)}
+            {renderEyedropperOverlay("acceptance", acceptanceVideoRef)}
           </div>
 
           {/* Volume control */}
@@ -1747,6 +1839,7 @@ export const SyncDualPlayer: React.FC = () => {
               </div>
             )}
             {renderRulerOverlay("emission", emissionVideoRef)}
+            {renderEyedropperOverlay("emission", emissionVideoRef)}
           </div>
 
           {/* Volume control */}
@@ -1893,7 +1986,10 @@ export const SyncDualPlayer: React.FC = () => {
             <button
               onClick={() => {
                 setIsEyedropperActive(!isEyedropperActive);
-                if (isEyedropperActive) setHoverColor(null);
+                if (isEyedropperActive) {
+                  setHoverColor(null);
+                  setEyedropperDrops([]);
+                }
               }}
               disabled={!acceptanceFile && !emissionFile}
               className={`w-10 h-10 flex items-center justify-center rounded-xl transition-colors disabled:opacity-40 disabled:hover:bg-transparent ${
