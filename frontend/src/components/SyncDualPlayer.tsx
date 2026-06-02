@@ -39,6 +39,7 @@ interface VideoFile {
   size: number;
   isLocal: boolean; // True if using URL.createObjectURL, false if streamed from backend
   fileId?: number;  // Optional, if uploaded to backend
+  conversionTime?: number; // Optional, time took to transcode
 }
 
 export const SyncDualPlayer: React.FC = () => {
@@ -132,10 +133,21 @@ export const SyncDualPlayer: React.FC = () => {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
   };
 
-  // Clean up object URLs to prevent memory leaks
+  // Clean up object URLs to prevent memory leaks and delete files from server
   const cleanUpFile = (file: VideoFile | null) => {
-    if (file && file.isLocal && file.url.startsWith("blob:")) {
+    if (!file) return;
+    
+    if (file.isLocal && file.url.startsWith("blob:")) {
       URL.revokeObjectURL(file.url);
+    }
+    
+    // Jeśli plik był wgrany na serwer (niezależnie czy wygenerowano mp4 czy nie), usuń go trwale
+    if (file.fileId !== undefined) {
+      // DEV i LIVE różnice w URL, używamy względnego dla proxy w vite
+      const apiBase = ''; 
+      fetch(`${apiBase}/api/v1/files/${file.fileId}`, {
+        method: 'DELETE',
+      }).catch(err => console.error("Error deleting file:", err));
     }
   };
 
@@ -228,6 +240,7 @@ export const SyncDualPlayer: React.FC = () => {
               size: file.size,
               isLocal: false,
               fileId: fileId,
+              conversionTime: fileStatus.file_metadata?.conversion_time,
             };
 
             if (isAcc) {
@@ -1618,6 +1631,7 @@ export const SyncDualPlayer: React.FC = () => {
                   <span className="flex-shrink-0 ml-1.5 font-medium whitespace-nowrap">
                     • {formatFileSize(acceptanceFile.size)}
                     {accDimensions && ` • ${accDimensions.width}x${accDimensions.height}`}
+                    {acceptanceFile.conversionTime && ` • Konwersja: ${acceptanceFile.conversionTime}s`}
                   </span>
                 </p>
               )}
@@ -1769,6 +1783,7 @@ export const SyncDualPlayer: React.FC = () => {
                   <span className="flex-shrink-0 ml-1.5 font-medium whitespace-nowrap">
                     • {formatFileSize(emissionFile.size)}
                     {emDimensions && ` • ${emDimensions.width}x${emDimensions.height}`}
+                    {emissionFile.conversionTime && ` • Konwersja: ${emissionFile.conversionTime}s`}
                   </span>
                 </p>
               )}
