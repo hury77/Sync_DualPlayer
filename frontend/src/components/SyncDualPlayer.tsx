@@ -14,8 +14,10 @@ import {
   EyeSlashIcon,
   CameraIcon,
   EyeDropperIcon,
-
+  DocumentTextIcon,
 } from "@heroicons/react/24/outline";
+import Tesseract from "tesseract.js";
+import { diffWords } from "diff";
 
 const RulerIcon = ({ className }: { className?: string }) => (
   <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -60,6 +62,17 @@ export const SyncDualPlayer: React.FC = () => {
   const [rulerColor, setRulerColor] = useState("#3b82f6");
   const [rulerLines, setRulerLines] = useState<RulerLine[]>([]);
   const [activeRulerLine, setActiveRulerLine] = useState<RulerLine | null>(null);
+
+  // OCR / Compare Copy States
+  const [isOcrActive, setIsOcrActive] = useState(false);
+  const [ocrLanguage, setOcrLanguage] = useState("eng"); // default to English
+  const [ocrBoxAcceptance, setOcrBoxAcceptance] = useState<{startX: number, startY: number, endX: number, endY: number} | null>(null);
+  const [ocrBoxEmission, setOcrBoxEmission] = useState<{startX: number, startY: number, endX: number, endY: number} | null>(null);
+  const [activeOcrBox, setActiveOcrBox] = useState<{startX: number, startY: number, endX: number, endY: number, sourceVideo: "acceptance" | "emission"} | null>(null);
+  const [ocrTextAcceptance, setOcrTextAcceptance] = useState("");
+  const [ocrTextEmission, setOcrTextEmission] = useState("");
+  const [ocrBriefText, setOcrBriefText] = useState("");
+  const [isOcrProcessing, setIsOcrProcessing] = useState(false);
 
   // Trim States
   const [acceptanceTrim, setAcceptanceTrim] = useState(0);
@@ -495,6 +508,11 @@ export const SyncDualPlayer: React.FC = () => {
     setCurrentTime(0);
     setAcceptanceTrim(0);
     setEmissionTrim(0);
+    setOcrBoxAcceptance(null);
+    setOcrBoxEmission(null);
+    setOcrTextAcceptance("");
+    setOcrTextEmission("");
+    setOcrBriefText("");
   };
 
   const getMouseSourceCoordinates = (e: React.MouseEvent<HTMLVideoElement>, videoRef: React.RefObject<HTMLVideoElement | null>) => {
@@ -548,6 +566,21 @@ export const SyncDualPlayer: React.FC = () => {
       return;
     }
 
+    if (isOcrActive) {
+      const coords = getMouseSourceCoordinates(e, videoRef);
+      if (!coords) return;
+      const sourceVideo = videoRef === acceptanceVideoRef ? "acceptance" : "emission";
+      
+      setActiveOcrBox({
+        startX: coords.sourceX,
+        startY: coords.sourceY,
+        endX: coords.sourceX,
+        endY: coords.sourceY,
+        sourceVideo
+      });
+      return;
+    }
+
     if (isEyedropperActive) {
       const coords = getMouseSourceCoordinates(e, videoRef);
       if (!coords) return;
@@ -587,6 +620,18 @@ export const SyncDualPlayer: React.FC = () => {
       }
     }
 
+    if (isOcrActive && activeOcrBox && !isPlaying) {
+      const coords = getMouseSourceCoordinates(e, videoRef);
+      if (coords) {
+        setActiveOcrBox({
+          ...activeOcrBox,
+          endX: coords.sourceX,
+          endY: coords.sourceY
+        });
+      }
+      return;
+    }
+
     if (!isEyedropperActive || isPlaying) {
       if (hoverColor) setHoverColor(null);
       return;
@@ -621,6 +666,25 @@ export const SyncDualPlayer: React.FC = () => {
     if (isRulerActive && activeRulerLine) {
       setRulerLines(prev => [...prev, activeRulerLine]);
       setActiveRulerLine(null);
+    }
+    
+    if (isOcrActive && activeOcrBox) {
+      const box = {
+        startX: Math.min(activeOcrBox.startX, activeOcrBox.endX),
+        startY: Math.min(activeOcrBox.startY, activeOcrBox.endY),
+        endX: Math.max(activeOcrBox.startX, activeOcrBox.endX),
+        endY: Math.max(activeOcrBox.startY, activeOcrBox.endY),
+      };
+      
+      // Ensure box is at least 10x10 to be valid
+      if (box.endX - box.startX > 10 && box.endY - box.startY > 10) {
+        if (activeOcrBox.sourceVideo === "acceptance") {
+          setOcrBoxAcceptance(box);
+        } else {
+          setOcrBoxEmission(box);
+        }
+      }
+      setActiveOcrBox(null);
     }
   };
 
@@ -1334,6 +1398,56 @@ export const SyncDualPlayer: React.FC = () => {
     return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}:${frames.toString().padStart(2, "0")}`;
   };
 
+  // OCR Lifecycle & Execution
+  useEffect(() => {
+    if (!isOcrActive) {
+      setOcrBoxAcceptance(null);
+      setOcrBoxEmission(null);
+      setOcrTextAcceptance("");
+      setOcrTextEmission("");
+      setOcrBriefText("");
+      setActiveOcrBox(null);
+    }
+  }, [isOcrActive]);
+
+  const extractTextFromVideo = async (video: HTMLVideoElement, box: {startX: number, startY: number, endX: number, endY: number}) => {
+    const width = box.endX - box.startX;
+    const height = box.endY - box.startY;
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    if (!ctx) return "";
+    
+    ctx.drawImage(video, box.startX, box.startY, width, height, 0, 0, width, height);
+    const dataUrl = canvas.toDataURL("image/png");
+    
+    try {
+      const result = await Tesseract.recognize(dataUrl, ocrLanguage);
+      return result.data.text.trim();
+    } catch (err) {
+      console.error("OCR error:", err);
+      return "Błąd odczytu tekstu.";
+    }
+  };
+
+  const handleRunOcr = async () => {
+    setIsOcrProcessing(true);
+    let accText = "";
+    let emiText = "";
+
+    if (ocrBoxAcceptance && acceptanceVideoRef.current && acceptanceVideoRef.current.readyState >= 2) {
+      accText = await extractTextFromVideo(acceptanceVideoRef.current, ocrBoxAcceptance);
+      setOcrTextAcceptance(accText);
+    }
+    if (ocrBoxEmission && emissionVideoRef.current && emissionVideoRef.current.readyState >= 2) {
+      emiText = await extractTextFromVideo(emissionVideoRef.current, ocrBoxEmission);
+      setOcrTextEmission(emiText);
+    }
+
+    setIsOcrProcessing(false);
+  };
+
   const renderRulerOverlay = (sourceVideo: "acceptance" | "emission", containerRef: React.RefObject<HTMLVideoElement | null>) => {
     if (!isRulerActive) return null;
     
@@ -1462,6 +1576,64 @@ export const SyncDualPlayer: React.FC = () => {
           );
         })}
       </div>
+    );
+  };
+
+  const renderOcrBoxOverlay = (sourceVideo: "acceptance" | "emission", containerRef: React.RefObject<HTMLVideoElement | null>) => {
+    if (!isOcrActive) return null;
+    
+    const video = containerRef.current;
+    if (!video || video.readyState < 2) return null;
+    
+    const rect = video.getBoundingClientRect();
+    const videoRatio = video.videoWidth / video.videoHeight;
+    const containerRatio = rect.width / rect.height;
+
+    let renderedWidth: number, renderedHeight: number, offsetX = 0, offsetY = 0;
+    if (containerRatio > videoRatio) {
+      renderedHeight = rect.height;
+      renderedWidth = rect.height * videoRatio;
+      offsetX = (rect.width - renderedWidth) / 2;
+    } else {
+      renderedWidth = rect.width;
+      renderedHeight = rect.width / videoRatio;
+      offsetY = (rect.height - renderedHeight) / 2;
+    }
+
+    const mapToScreen = (sx: number, sy: number) => ({
+      x: (sx / video.videoWidth) * renderedWidth + offsetX,
+      y: (sy / video.videoHeight) * renderedHeight + offsetY
+    });
+
+    const box = sourceVideo === "acceptance" ? ocrBoxAcceptance : ocrBoxEmission;
+    const isDrawingBox = activeOcrBox?.sourceVideo === sourceVideo;
+    
+    return (
+      <svg className="absolute top-0 left-0 w-full h-full pointer-events-none z-20">
+        {box && (
+          <rect
+            x={mapToScreen(box.startX, box.startY).x}
+            y={mapToScreen(box.startX, box.startY).y}
+            width={mapToScreen(box.endX, box.endY).x - mapToScreen(box.startX, box.startY).x}
+            height={mapToScreen(box.endX, box.endY).y - mapToScreen(box.startX, box.startY).y}
+            fill="rgba(59, 130, 246, 0.2)"
+            stroke="#3b82f6"
+            strokeWidth="2"
+            strokeDasharray="4 4"
+          />
+        )}
+        {isDrawingBox && activeOcrBox && (
+          <rect
+            x={mapToScreen(Math.min(activeOcrBox.startX, activeOcrBox.endX), Math.min(activeOcrBox.startY, activeOcrBox.endY)).x}
+            y={mapToScreen(Math.min(activeOcrBox.startX, activeOcrBox.endX), Math.min(activeOcrBox.startY, activeOcrBox.endY)).y}
+            width={Math.abs(mapToScreen(activeOcrBox.endX, activeOcrBox.endY).x - mapToScreen(activeOcrBox.startX, activeOcrBox.startY).x)}
+            height={Math.abs(mapToScreen(activeOcrBox.endX, activeOcrBox.endY).y - mapToScreen(activeOcrBox.startX, activeOcrBox.startY).y)}
+            fill="rgba(59, 130, 246, 0.4)"
+            stroke="#3b82f6"
+            strokeWidth="2"
+          />
+        )}
+      </svg>
     );
   };
 
@@ -1679,7 +1851,7 @@ export const SyncDualPlayer: React.FC = () => {
             {acceptanceFile ? (
               <video
                 ref={acceptanceVideoRef}
-                className={`w-full h-full object-contain bg-black rounded-lg ${(isEyedropperActive || isRulerActive) && !isPlaying ? "cursor-crosshair" : ""}`}
+                className={`w-full h-full object-contain bg-black rounded-lg ${(isEyedropperActive || isRulerActive || isOcrActive) && !isPlaying ? "cursor-crosshair" : ""}`}
                 src={acceptanceFile.url}
                 crossOrigin="anonymous"
                 preload="auto"
@@ -1703,6 +1875,7 @@ export const SyncDualPlayer: React.FC = () => {
             )}
             {renderRulerOverlay("acceptance", acceptanceVideoRef)}
             {renderEyedropperOverlay("acceptance", acceptanceVideoRef)}
+            {renderOcrBoxOverlay("acceptance", acceptanceVideoRef)}
           </div>
 
           {/* Volume control */}
@@ -1831,7 +2004,7 @@ export const SyncDualPlayer: React.FC = () => {
             {emissionFile ? (
               <video
                 ref={emissionVideoRef}
-                className={`w-full h-full object-contain bg-black rounded-lg ${(isEyedropperActive || isRulerActive) && !isPlaying ? "cursor-crosshair" : ""}`}
+                className={`w-full h-full object-contain bg-black rounded-lg ${(isEyedropperActive || isRulerActive || isOcrActive) && !isPlaying ? "cursor-crosshair" : ""}`}
                 src={emissionFile.url}
                 crossOrigin="anonymous"
                 preload="auto"
@@ -1855,6 +2028,7 @@ export const SyncDualPlayer: React.FC = () => {
             )}
             {renderRulerOverlay("emission", emissionVideoRef)}
             {renderEyedropperOverlay("emission", emissionVideoRef)}
+            {renderOcrBoxOverlay("emission", emissionVideoRef)}
           </div>
 
           {/* Volume control */}
@@ -2048,6 +2222,20 @@ export const SyncDualPlayer: React.FC = () => {
               )}
             </div>
 
+            {/* OCR Compare Copy Toggle */}
+            <button
+              onClick={() => setIsOcrActive(!isOcrActive)}
+              disabled={!acceptanceFile && !emissionFile}
+              className={`w-10 h-10 flex items-center justify-center rounded-xl transition-colors disabled:opacity-40 disabled:hover:bg-transparent ${
+                isOcrActive 
+                  ? "bg-purple-100 text-purple-700 hover:bg-purple-200" 
+                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+              }`}
+              title={isOcrActive ? "Wyłącz porównanie tekstu (OCR)" : "Włącz porównanie tekstu (OCR)"}
+            >
+              <DocumentTextIcon className="w-5 h-5" />
+            </button>
+
             {/* Analyze current frame (only visible in diff mode) */}
             {diffMode && (
               <button
@@ -2095,9 +2283,152 @@ export const SyncDualPlayer: React.FC = () => {
               {isMuted ? <SpeakerXMarkIcon className="w-5 h-5" /> : <SpeakerWaveIcon className="w-5 h-5" />}
             </button>
           </div>
-
         </div>
       </div>
+
+      {/* OCR / Compare Copy Panel */}
+      {isOcrActive && (
+        <div className="mt-8 bg-white rounded-2xl shadow-sm border border-purple-200 overflow-hidden">
+          <div className="px-6 py-4 border-b border-purple-100 bg-purple-50/50 flex justify-between items-center">
+            <h3 className="font-semibold text-purple-900 flex items-center gap-2">
+              <DocumentTextIcon className="w-5 h-5" /> Compare Copy (OCR)
+            </h3>
+            <div className="flex items-center gap-3">
+              <span className="text-xs font-semibold text-purple-700">Język OCR:</span>
+              <select 
+                value={ocrLanguage}
+                onChange={(e) => setOcrLanguage(e.target.value)}
+                className="text-xs border-purple-200 rounded px-2 py-1 bg-white focus:ring-purple-500 text-purple-900 cursor-pointer"
+              >
+                <option value="eng">Angielski (eng)</option>
+                <option value="pol">Polski (pol)</option>
+                <option value="deu">Niemiecki (deu)</option>
+                <option value="fra">Francuski (fra)</option>
+                <option value="spa">Hiszpański (spa)</option>
+                <option value="ita">Włoski (ita)</option>
+              </select>
+            </div>
+          </div>
+          
+          <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-6">
+            {/* Brief Input */}
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-semibold text-gray-700">Skopiowany Brief (wklej tutaj)</label>
+              <textarea 
+                value={ocrBriefText}
+                onChange={(e) => setOcrBriefText(e.target.value)}
+                placeholder="Wklej tekst z briefu (PPTX/Word) do porównania..."
+                className="w-full h-32 p-3 text-sm border border-gray-300 rounded-lg focus:ring-purple-500 focus:border-purple-500 resize-none font-mono"
+              />
+            </div>
+            
+            {/* OCR Extracted Acceptance */}
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-semibold text-green-700">Tekst z wideo Acceptance</label>
+                {ocrBoxAcceptance ? (
+                  <span className="text-[10px] bg-green-100 text-green-800 px-2 py-0.5 rounded font-mono">ZAZNACZONO OBSZAR</span>
+                ) : (
+                  <span className="text-[10px] text-gray-400 font-mono">ZAZNACZ OBSZAR MYSZKĄ</span>
+                )}
+              </div>
+              <textarea 
+                value={ocrTextAcceptance}
+                readOnly
+                placeholder="Tutaj pojawi się tekst zczytany z wideo Acceptance..."
+                className="w-full h-32 p-3 text-sm border border-gray-300 bg-gray-50 rounded-lg focus:outline-none resize-none font-mono"
+              />
+            </div>
+            
+            {/* OCR Extracted Emission */}
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-semibold text-red-700">Tekst z wideo Emission</label>
+                {ocrBoxEmission ? (
+                  <span className="text-[10px] bg-red-100 text-red-800 px-2 py-0.5 rounded font-mono">ZAZNACZONO OBSZAR</span>
+                ) : (
+                  <span className="text-[10px] text-gray-400 font-mono">ZAZNACZ OBSZAR MYSZKĄ</span>
+                )}
+              </div>
+              <textarea 
+                value={ocrTextEmission}
+                readOnly
+                placeholder="Tutaj pojawi się tekst zczytany z wideo Emission..."
+                className="w-full h-32 p-3 text-sm border border-gray-300 bg-gray-50 rounded-lg focus:outline-none resize-none font-mono"
+              />
+            </div>
+          </div>
+          
+          <div className="px-6 pb-6 pt-2 flex flex-col gap-6 border-t border-gray-100 mt-2">
+            <div className="flex items-center justify-between pt-4">
+              <button
+                onClick={handleRunOcr}
+                disabled={isOcrProcessing || (!ocrBoxAcceptance && !ocrBoxEmission)}
+                className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-6 py-2 rounded-xl font-semibold transition-colors disabled:opacity-50"
+              >
+                {isOcrProcessing ? (
+                  <ArrowPathIcon className="w-5 h-5 animate-spin" />
+                ) : (
+                  <DocumentTextIcon className="w-5 h-5" />
+                )}
+                {isOcrProcessing ? "Zczytywanie i analiza..." : "Zczytaj teksty i porównaj"}
+              </button>
+            </div>
+            
+            {/* DIFF RESULTS */}
+            {(ocrTextAcceptance || ocrTextEmission) && (
+              <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 flex flex-col gap-4">
+                <h4 className="text-sm font-bold text-gray-700 uppercase tracking-wider">Wynik Porównania (Różnice)</h4>
+                
+                <div className="flex items-center gap-2 text-xs text-gray-500 bg-white border rounded px-3 py-1.5 w-max">
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-green-300 block"></span> Dodane</span>
+                  <span className="flex items-center gap-1 ml-2"><span className="w-2 h-2 rounded bg-red-300 block"></span> Usunięte</span>
+                </div>
+                
+                {ocrBriefText && ocrTextAcceptance && (
+                  <div className="flex flex-col gap-1">
+                    <span className="text-xs font-semibold text-gray-500">Brief <span className="mx-1 text-[10px] text-gray-300">vs</span> Acceptance</span>
+                    <div className="p-3 bg-white border border-gray-200 rounded font-mono text-sm leading-relaxed whitespace-pre-wrap break-words">
+                      {diffWords(ocrBriefText, ocrTextAcceptance).map((part, i) => (
+                        <span key={i} className={part.added ? "bg-green-200 text-green-900 px-0.5 rounded" : part.removed ? "bg-red-200 text-red-900 line-through px-0.5 rounded" : ""}>
+                          {part.value}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
+                {ocrBriefText && ocrTextEmission && (
+                  <div className="flex flex-col gap-1 mt-2">
+                    <span className="text-xs font-semibold text-gray-500">Brief <span className="mx-1 text-[10px] text-gray-300">vs</span> Emission</span>
+                    <div className="p-3 bg-white border border-gray-200 rounded font-mono text-sm leading-relaxed whitespace-pre-wrap break-words">
+                      {diffWords(ocrBriefText, ocrTextEmission).map((part, i) => (
+                        <span key={i} className={part.added ? "bg-green-200 text-green-900 px-0.5 rounded" : part.removed ? "bg-red-200 text-red-900 line-through px-0.5 rounded" : ""}>
+                          {part.value}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
+                {ocrTextAcceptance && ocrTextEmission && !ocrBriefText && (
+                  <div className="flex flex-col gap-1 mt-2">
+                    <span className="text-xs font-semibold text-gray-500">Acceptance <span className="mx-1 text-[10px] text-gray-300">vs</span> Emission</span>
+                    <div className="p-3 bg-white border border-gray-200 rounded font-mono text-sm leading-relaxed whitespace-pre-wrap break-words">
+                      {diffWords(ocrTextAcceptance, ocrTextEmission).map((part, i) => (
+                        <span key={i} className={part.added ? "bg-green-200 text-green-900 px-0.5 rounded" : part.removed ? "bg-red-200 text-red-900 line-through px-0.5 rounded" : ""}>
+                          {part.value}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };
