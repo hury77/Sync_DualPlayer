@@ -18,6 +18,8 @@ import {
 } from "@heroicons/react/24/outline";
 import Tesseract from "tesseract.js";
 import { diffWords } from "diff";
+import { jsPDF } from "jspdf";
+import html2canvas from "html2canvas";
 
 const RulerIcon = ({ className }: { className?: string }) => (
   <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -42,6 +44,21 @@ interface VideoFile {
   isLocal: boolean; // True if using URL.createObjectURL, false if streamed from backend
   fileId?: number;  // Optional, if uploaded to backend
   conversionTime?: number; // Optional, time took to transcode
+}
+
+
+interface ReportItem {
+  id: string;
+  timecode: number;
+  type: "visual" | "ocr" | "unified";
+  comment: string;
+  acceptanceImage?: string;
+  emissionImage?: string;
+  diffImage?: string;
+  ocrPanelImage?: string;
+  ocrTextAcceptance?: string;
+  ocrTextEmission?: string;
+  ocrBriefText?: string;
 }
 
 export const SyncDualPlayer: React.FC = () => {
@@ -75,6 +92,12 @@ export const SyncDualPlayer: React.FC = () => {
   const [ocrTextEmission, setOcrTextEmission] = useState("");
   const [ocrBriefText, setOcrBriefText] = useState("");
   const [isOcrProcessing, setIsOcrProcessing] = useState(false);
+
+  // Report Builder State
+  const [reportItems, setReportItems] = useState<ReportItem[]>([]);
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [capturingReport, setCapturingReport] = useState(false);
+  const [pendingReportItem, setPendingReportItem] = useState<ReportItem | null>(null);
 
   // Trim States
   const [acceptanceTrim, setAcceptanceTrim] = useState(0);
@@ -1465,6 +1488,313 @@ export const SyncDualPlayer: React.FC = () => {
     }
   };
 
+  // Report Capture Logic
+  const handleCaptureReport = async () => {
+    if (capturingReport) return;
+    setCapturingReport(true);
+    
+    let acceptanceImage = "";
+    let emissionImage = "";
+    let diffImage = "";
+    let ocrPanelImage = "";
+    
+    try {
+      const captureContainer = async (containerId: string, videoRef: React.RefObject<HTMLVideoElement | null>) => {
+        const container = document.getElementById(containerId);
+        const videoElement = videoRef.current;
+        if (!container || !videoElement) return "";
+        
+        const fallbackCanvas = document.createElement("canvas");
+        fallbackCanvas.width = videoElement.videoWidth;
+        fallbackCanvas.height = videoElement.videoHeight;
+        const fCtx = fallbackCanvas.getContext("2d");
+        if (fCtx) {
+          fCtx.drawImage(videoElement, 0, 0, fallbackCanvas.width, fallbackCanvas.height);
+          
+          const sourceVideo = containerId.includes("acceptance") ? "acceptance" : "emission";
+          const baseScale = Math.max(1, fallbackCanvas.height / 800);
+          fCtx.lineWidth = 3 * baseScale;
+          
+          // Draw Rulers
+          if (isRulerActive) {
+            fCtx.strokeStyle = rulerColor;
+            fCtx.fillStyle = rulerColor;
+            fCtx.font = `bold ${24 * baseScale}px sans-serif`;
+            const linesToRender = [...rulerLines];
+            if (activeRulerLine) linesToRender.push(activeRulerLine);
+            linesToRender.filter(l => l.sourceVideo === sourceVideo).forEach(line => {
+              fCtx.beginPath();
+              fCtx.moveTo(line.startX, line.startY);
+              fCtx.lineTo(line.endX, line.endY);
+              fCtx.stroke();
+              
+              fCtx.beginPath();
+              fCtx.arc(line.startX, line.startY, 5 * baseScale, 0, 2*Math.PI);
+              fCtx.fill();
+              fCtx.beginPath();
+              fCtx.arc(line.endX, line.endY, 5 * baseScale, 0, 2*Math.PI);
+              fCtx.fill();
+              
+              const dist = Math.round(Math.sqrt(Math.pow(line.endX - line.startX, 2) + Math.pow(line.endY - line.startY, 2)));
+              fCtx.fillText(`${dist}px`, line.endX + 10 * baseScale, line.endY + 10 * baseScale);
+            });
+          }
+          
+          // Draw Eyedroppers
+          if (isEyedropperActive) {
+            const dropsToRender = [...eyedropperDrops];
+            if (hoverColor) dropsToRender.push(hoverColor);
+            dropsToRender.filter(d => d.sourceVideo === sourceVideo).forEach(drop => {
+              fCtx.strokeStyle = "white";
+              fCtx.lineWidth = 2 * baseScale;
+              fCtx.beginPath();
+              fCtx.arc(drop.sourceX, drop.sourceY, 8 * baseScale, 0, 2 * Math.PI);
+              fCtx.stroke();
+              
+              fCtx.fillStyle = "rgba(0, 0, 0, 0.7)";
+              fCtx.fillRect(drop.sourceX + 15 * baseScale, drop.sourceY - 35 * baseScale, 100 * baseScale, 30 * baseScale);
+              fCtx.fillStyle = drop.hex;
+              fCtx.font = `bold ${16 * baseScale}px monospace`;
+              fCtx.fillText(drop.hex, drop.sourceX + 22 * baseScale, drop.sourceY - 14 * baseScale);
+            });
+          }
+        }
+        
+        try {
+          const h2cCanvas = await html2canvas(container, {
+            backgroundColor: null,
+            useCORS: true,
+            scale: 1.5,
+            ignoreElements: (node) => node.tagName === "VIDEO"
+          });
+          
+          const finalCanvas = document.createElement("canvas");
+          finalCanvas.width = h2cCanvas.width;
+          finalCanvas.height = h2cCanvas.height;
+          const ctx = finalCanvas.getContext("2d");
+          if (ctx) {
+            ctx.fillStyle = "#f9fafb";
+            ctx.fillRect(0, 0, finalCanvas.width, finalCanvas.height);
+            
+            const vRect = videoElement.getBoundingClientRect();
+            const cRect = container.getBoundingClientRect();
+            
+            const scale = 1.5;
+            const vLeft = (vRect.left - cRect.left) * scale;
+            const vTop = (vRect.top - cRect.top) * scale;
+            const vWidth = vRect.width * scale;
+            const vHeight = vRect.height * scale;
+            
+            ctx.drawImage(fallbackCanvas, vLeft, vTop, vWidth, vHeight);
+            ctx.drawImage(h2cCanvas, 0, 0);
+          }
+          return finalCanvas.toDataURL("image/jpeg", 0.8);
+        } catch (e) {
+          console.warn("html2canvas error, using fallback", e);
+          return fallbackCanvas.toDataURL("image/jpeg", 0.8);
+        }
+      };
+
+      acceptanceImage = await captureContainer("acceptance-container", acceptanceVideoRef);
+      emissionImage = await captureContainer("emission-container", emissionVideoRef);
+      
+      if (diffMode && wipeCanvasRef.current) {
+        try { diffImage = wipeCanvasRef.current.toDataURL("image/jpeg", 0.8); } catch(e) {}
+      }
+      if (isOcrActive) {
+        const ocrPanel = document.getElementById("ocr-panel-container");
+        if (ocrPanel) {
+          try {
+            const ocrCanvas = await html2canvas(ocrPanel, { backgroundColor: "#f9fafb", useCORS: true, scale: 1.5 });
+            ocrPanelImage = ocrCanvas.toDataURL("image/jpeg", 0.8);
+          } catch (e) {
+            console.warn("Failed to capture OCR panel:", e);
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Failed to capture report screenshots:", err);
+    }
+
+    setPendingReportItem({
+        id: Date.now().toString(),
+        timecode: currentTime,
+        type: "unified" as any,
+        comment: "",
+        acceptanceImage,
+        emissionImage,
+        diffImage,
+        ocrPanelImage,
+        ocrTextAcceptance: isOcrActive ? ocrTextAcceptance : undefined,
+        ocrTextEmission: isOcrActive ? ocrTextEmission : undefined,
+        ocrBriefText: isOcrActive ? ocrBriefText : undefined,
+      });
+    setCapturingReport(false);
+  };
+
+  const removeAccents = (str: string) => {
+    if (!str) return "";
+    return str
+      .replace(/ą/g, 'a').replace(/Ą/g, 'A')
+      .replace(/ć/g, 'c').replace(/Ć/g, 'C')
+      .replace(/ę/g, 'e').replace(/Ę/g, 'E')
+      .replace(/ł/g, 'l').replace(/Ł/g, 'L')
+      .replace(/ń/g, 'n').replace(/Ń/g, 'N')
+      .replace(/ó/g, 'o').replace(/Ó/g, 'O')
+      .replace(/ś/g, 's').replace(/Ś/g, 'S')
+      .replace(/ź/g, 'z').replace(/Ź/g, 'Z')
+      .replace(/ż/g, 'z').replace(/Ż/g, 'Z')
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  };
+
+  const generatePDF = () => {
+    const doc = new jsPDF();
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(20);
+    doc.text("Raport QA - Sync DualPlayer", 20, 20);
+    
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.text(`Data wygenerowania: ${new Date().toLocaleString()}`, 20, 30);
+    if (acceptanceFile) doc.text(`Acceptance: ${acceptanceFile.name}`, 20, 38);
+    if (emissionFile) doc.text(`Emission: ${emissionFile.name}`, 20, 44);
+
+    let yOffset = 55;
+    
+    reportItems.forEach((item, index) => {
+      // Add new page if we are near the bottom
+      if (yOffset > 220) {
+        doc.addPage();
+        yOffset = 20;
+      }
+      
+      // Header for item
+      doc.setFillColor(243, 244, 246);
+      doc.rect(20, yOffset - 5, 170, 8, "F");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(12);
+      doc.setTextColor(31, 41, 55);
+      doc.text(`Zrzut #${index + 1} - Czas wideo: ${item.timecode.toFixed(3)}s [Typ: ${item.type.toUpperCase()}]`, 22, yOffset);
+      yOffset += 10;
+      
+      // Comment
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+      if (item.comment) {
+        doc.setFont("helvetica", "italic");
+        const lines = doc.splitTextToSize(`Komentarz: ${removeAccents(item.comment)}`, 160);
+        doc.text(lines, 20, yOffset);
+        yOffset += (lines.length * 5) + 5;
+        doc.setFont("helvetica", "normal");
+      }
+
+      if (item.type === "visual" || item.type === "unified") {
+        let hasVideoImages = false;
+        if (item.acceptanceImage) {
+          hasVideoImages = true;
+          doc.setFontSize(9);
+          doc.text("Wideo Acceptance:", 20, yOffset);
+          doc.addImage(item.acceptanceImage, "JPEG", 20, yOffset + 3, 80, 45);
+        }
+        if (item.emissionImage) {
+          hasVideoImages = true;
+          doc.setFontSize(9);
+          doc.text("Wideo Emission:", 110, yOffset);
+          doc.addImage(item.emissionImage, "JPEG", 110, yOffset + 3, 80, 45);
+        }
+        if (hasVideoImages) yOffset += 55;
+
+        if (item.diffImage) {
+          if (yOffset > 220) { doc.addPage(); yOffset = 20; }
+          doc.setFontSize(9);
+          doc.text("Wipe / Diff View (Overlay):", 20, yOffset);
+          doc.addImage(item.diffImage, "JPEG", 20, yOffset + 3, 170, 95);
+          yOffset += 105;
+        }
+
+        if (item.ocrPanelImage) {
+          if (yOffset > 180) { doc.addPage(); yOffset = 20; }
+          doc.setFontSize(9);
+          doc.text("Wyniki i Roznice OCR (Zrzut Panelu):", 20, yOffset);
+          doc.addImage(item.ocrPanelImage, "JPEG", 20, yOffset + 3, 170, 100);
+          yOffset += 110;
+        }
+
+        if (item.ocrTextAcceptance || item.ocrTextEmission) {
+          if (yOffset > 240) { doc.addPage(); yOffset = 20; }
+          
+          doc.setFontSize(10);
+          doc.setFont("helvetica", "bold");
+          doc.text("Odczyt OCR i Roznice Tekstu:", 20, yOffset);
+          yOffset += 6;
+          
+          const accBase = item.ocrTextAcceptance || "Brak odczytu.";
+          const emBase = item.ocrTextEmission || "Brak odczytu.";
+          const briefBase = item.ocrBriefText || accBase;
+
+          const renderColoredDiff = (text1: string, text2: string, startX: number, startY: number, maxWidth: number) => {
+            const parts = diffWords(text1, text2);
+            let currentX = startX;
+            let currentY = startY;
+            doc.setFontSize(9);
+            
+            parts.forEach(part => {
+              if (part.added) { doc.setTextColor(22, 163, 74); doc.setFont("helvetica", "bold"); }
+              else if (part.removed) { doc.setTextColor(220, 38, 38); doc.setFont("helvetica", "bold"); }
+              else { doc.setTextColor(55, 65, 81); doc.setFont("helvetica", "normal"); }
+              
+              const words = part.value.split(/(\s+)/);
+              words.forEach(word => {
+                if (!word) return;
+                if (word === '\n') {
+                  currentY += 5;
+                  currentX = startX;
+                  return;
+                }
+                const cleanWord = removeAccents(word);
+                const w = doc.getTextWidth(cleanWord);
+                if (currentX + w > startX + maxWidth) {
+                  currentY += 5;
+                  currentX = startX;
+                  if (word.trim() === '') return;
+                }
+                doc.text(cleanWord, currentX, currentY);
+                currentX += w;
+              });
+            });
+            doc.setTextColor(31, 41, 55);
+            doc.setFont("helvetica", "normal");
+            return currentY + 7;
+          };
+
+          doc.setFontSize(9);
+          doc.setFont("helvetica", "normal");
+          doc.text("Acceptance:", 20, yOffset);
+          yOffset += 4;
+          yOffset = renderColoredDiff(briefBase, accBase, 20, yOffset, 160);
+          
+          doc.setFont("helvetica", "normal");
+          doc.setTextColor(31, 41, 55);
+          doc.text("Emission:", 20, yOffset);
+          yOffset += 4;
+          yOffset = renderColoredDiff(briefBase, emBase, 20, yOffset, 160);
+          
+          if (item.ocrBriefText && item.ocrTextAcceptance && item.ocrTextEmission) {
+            doc.setFont("helvetica", "bold");
+            doc.setTextColor(31, 41, 55);
+            doc.text("Bezposrednie porownanie (Acc vs Em):", 20, yOffset);
+            yOffset += 4;
+            yOffset = renderColoredDiff(accBase, emBase, 20, yOffset, 160);
+          }
+        }
+      }
+      
+      yOffset += 5;
+    });
+
+    doc.save("Raport_QA.pdf");
+  };
+
   const handleRunOcr = async () => {
     setIsOcrProcessing(true);
     let accText = "";
@@ -1516,7 +1846,7 @@ export const SyncDualPlayer: React.FC = () => {
     if (activeRulerLine) linesToRender.push(activeRulerLine);
 
     return (
-      <svg className="absolute top-4 left-4 w-[calc(100%-2rem)] h-[calc(100%-2rem)] pointer-events-none z-20">
+      <svg xmlns="http://www.w3.org/2000/svg" className="absolute top-4 left-4 w-[calc(100%-2rem)] h-[calc(100%-2rem)] pointer-events-none z-20">
         {linesToRender.filter(l => l.sourceVideo === sourceVideo).map((line, i) => {
           const start = mapToScreen(line.startX, line.startY);
           const end = mapToScreen(line.endX, line.endY);
@@ -1732,7 +2062,7 @@ export const SyncDualPlayer: React.FC = () => {
 
       {/* ── Wipe / Diff Overlay Panel (visible only in diff mode) ── */}
       {diffMode && acceptanceFile && emissionFile && (
-        <div className="mb-6 bg-gray-950 rounded-2xl overflow-hidden border border-gray-800 shadow-xl">
+        <div id="wipe-diff-container" className="mb-6 bg-gray-950 rounded-2xl overflow-hidden border border-gray-800 shadow-xl">
           <div className="px-5 py-3 flex items-center justify-between border-b border-gray-800">
             <div className="flex items-center gap-3">
               <span className="text-sm font-semibold text-white">Wipe / Diff View</span>
@@ -1850,7 +2180,7 @@ export const SyncDualPlayer: React.FC = () => {
           </div>
 
           {/* Player Container */}
-          <div className="p-4 bg-gray-50/40 relative aspect-video flex items-center justify-center">
+          <div id="acceptance-container" className="p-4 bg-gray-50/40 relative aspect-video flex items-center justify-center">
             {acceptanceLoading && (
               <div className="absolute inset-0 z-30 bg-gray-950/85 backdrop-blur-sm flex flex-col items-center justify-center text-white p-6 text-center transition-all duration-200">
                 <div className="animate-spin rounded-full h-12 w-12 border-4 border-green-500 border-t-transparent mb-4 shadow-lg shadow-green-500/20"></div>
@@ -2003,7 +2333,7 @@ export const SyncDualPlayer: React.FC = () => {
           </div>
 
           {/* Player Container */}
-          <div className="p-4 bg-gray-50/40 relative aspect-video flex items-center justify-center">
+          <div id="emission-container" className="p-4 bg-gray-50/40 relative aspect-video flex items-center justify-center">
             {emissionLoading && (
               <div className="absolute inset-0 z-30 bg-gray-950/85 backdrop-blur-sm flex flex-col items-center justify-center text-white p-6 text-center transition-all duration-200">
                 <div className="animate-spin rounded-full h-12 w-12 border-4 border-red-500 border-t-transparent mb-4 shadow-lg shadow-red-500/20"></div>
@@ -2270,6 +2600,34 @@ export const SyncDualPlayer: React.FC = () => {
               <DocumentTextIcon className="w-5 h-5" />
             </button>
 
+            {/* Report Builder Toggle */}
+            <div className="w-px h-6 bg-gray-300 mx-2"></div>
+            <button
+              onClick={() => handleCaptureReport()}
+              disabled={capturingReport || (!acceptanceFile && !emissionFile)}
+              className={`w-10 h-10 flex items-center justify-center rounded-xl transition-colors disabled:opacity-40 disabled:hover:bg-transparent ${
+                capturingReport 
+                  ? "bg-amber-100 text-amber-700 animate-pulse" 
+                  : "bg-amber-50 text-amber-600 hover:bg-amber-100 border border-amber-200/50"
+              }`}
+              title="Dodaj obecny widok do Raportu PDF"
+            >
+              <CameraIcon className="w-5 h-5" />
+            </button>
+            <button
+              onClick={() => setIsReportModalOpen(true)}
+              className="px-3 h-10 flex items-center gap-2 rounded-xl transition-colors bg-white hover:bg-gray-50 border border-gray-200 text-gray-700 text-sm font-semibold"
+            >
+              Raport
+              {reportItems.length > 0 && (
+                <span className="bg-amber-500 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold">
+                  {reportItems.length}
+                </span>
+              )}
+            </button>
+
+            <div className="flex-1"></div>
+
             {/* Analyze current frame (only visible in diff mode) */}
             {diffMode && (
               <button
@@ -2314,7 +2672,6 @@ export const SyncDualPlayer: React.FC = () => {
               }`}
               title="Wycisz wszystko"
             >
-              {isMuted ? <SpeakerXMarkIcon className="w-5 h-5" /> : <SpeakerWaveIcon className="w-5 h-5" />}
             </button>
           </div>
         </div>
@@ -2322,7 +2679,7 @@ export const SyncDualPlayer: React.FC = () => {
 
       {/* OCR / Compare Copy Panel */}
       {isOcrActive && (
-        <div className="mt-8 bg-white rounded-2xl shadow-sm border border-purple-200 overflow-hidden">
+        <div id="ocr-panel-container" className="mt-8 bg-white rounded-2xl shadow-sm border border-purple-200 overflow-hidden">
           <div className="px-6 py-4 border-b border-purple-100 bg-purple-50/50 flex justify-between items-center">
             <h3 className="font-semibold text-purple-900 flex items-center gap-2">
               <DocumentTextIcon className="w-5 h-5" /> Compare Copy (OCR)
@@ -2492,6 +2849,138 @@ export const SyncDualPlayer: React.FC = () => {
                 )}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Pending Report Modal (Add Comment) */}
+      {pendingReportItem && (
+        <div className="fixed inset-0 z-50 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col">
+            <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+              <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+                <CameraIcon className="w-5 h-5 text-amber-500" />
+                Dodaj ujęcie do Raportu
+              </h2>
+              <button 
+                onClick={() => setPendingReportItem(null)}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <XMarkIcon className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="p-6">
+              <p className="text-sm text-gray-500 mb-4">
+                Zrzut został przechwycony dla czasu wideo: <span className="font-mono font-bold text-gray-700">{pendingReportItem.timecode.toFixed(3)}s</span>.
+                Możesz dodać krótki komentarz dla innych testerów lub programistów, który pojawi się w pliku PDF.
+              </p>
+              
+              <textarea
+                value={pendingReportItem.comment}
+                onChange={(e) => setPendingReportItem({ ...pendingReportItem, comment: e.target.value })}
+                placeholder="Np. Tekst legalu jest przesunięty o 5 pikseli w prawo..."
+                className="w-full h-24 p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none resize-none text-sm text-gray-700 bg-gray-50"
+                autoFocus
+              ></textarea>
+              
+              <div className="flex gap-3 mt-6 justify-end">
+                <button
+                  onClick={() => setPendingReportItem(null)}
+                  className="px-4 py-2 rounded-xl text-sm font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors"
+                >
+                  Anuluj
+                </button>
+                <button
+                  onClick={() => {
+                    setReportItems([...reportItems, pendingReportItem]);
+                    setPendingReportItem(null);
+                  }}
+                  className="px-5 py-2 rounded-xl text-sm font-semibold text-white bg-amber-500 hover:bg-amber-600 shadow-sm shadow-amber-500/20 transition-all"
+                >
+                  Zapisz do raportu
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Report Cart Modal */}
+      {isReportModalOpen && (
+        <div className="fixed inset-0 z-50 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col">
+            <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+              <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+                <DocumentTextIcon className="w-5 h-5 text-amber-500" />
+                Kreator Raportu PDF ({reportItems.length})
+              </h2>
+              <button 
+                onClick={() => setIsReportModalOpen(false)}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <XMarkIcon className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="p-6 overflow-y-auto flex-1 bg-gray-50/30">
+              {reportItems.length === 0 ? (
+                <div className="text-center py-12">
+                  <CameraIcon className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                  <p className="text-gray-500 font-medium">Brak dodanych zrzutów do raportu.</p>
+                  <p className="text-sm text-gray-400 mt-1">Użyj ikony aparatu na pasku narzędzi podczas pracy.</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {reportItems.map((item, index) => (
+                    <div key={item.id} className="bg-white border border-gray-200 rounded-xl p-4 flex gap-4 shadow-sm relative group">
+                      <div className="flex-shrink-0 w-8 h-8 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center font-bold text-sm">
+                        {index + 1}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="font-semibold text-gray-800 text-sm">Zrzut z {item.timecode.toFixed(3)}s</span>
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-gray-100 text-gray-600 uppercase">
+                            {item.type}
+                          </span>
+                        </div>
+                        {item.comment && (
+                          <p className="text-sm text-gray-600 italic break-words">{item.comment}</p>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => setReportItems(reportItems.filter(i => i.id !== item.id))}
+                        className="opacity-0 group-hover:opacity-100 absolute top-4 right-4 text-red-400 hover:text-red-600 transition-all"
+                        title="Usuń z raportu"
+                      >
+                        <XMarkIcon className="w-5 h-5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            
+            <div className="px-6 py-4 border-t border-gray-100 bg-white flex justify-between items-center">
+              <button
+                onClick={() => setReportItems([])}
+                disabled={reportItems.length === 0}
+                className="text-sm font-medium text-red-500 hover:text-red-600 disabled:opacity-50 disabled:hover:text-red-500"
+              >
+                Wyczyść raport
+              </button>
+              
+              <button
+                onClick={() => {
+                  generatePDF();
+                  setIsReportModalOpen(false);
+                }}
+                disabled={reportItems.length === 0}
+                className="px-6 py-2 rounded-xl text-sm font-semibold text-white bg-green-500 hover:bg-green-600 shadow-sm shadow-green-500/20 transition-all disabled:opacity-50 disabled:hover:bg-green-500"
+              >
+                Generuj Plik PDF
+              </button>
+            </div>
           </div>
         </div>
       )}
