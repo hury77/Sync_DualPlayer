@@ -8,3 +8,4 @@ dist/
 *.app/
 *.zip
 backend/ffmpeg
+*.dmg

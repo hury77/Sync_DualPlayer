@@ -216,11 +216,17 @@ if frontend_dist.exists() and (frontend_dist / "index.html").exists():
     @app.get("/{file_path:path}")
     async def serve_static(file_path: str):
         if file_path == "":
-            return HTMLResponse((frontend_dist / "index.html").read_text())
+            return HTMLResponse(
+                (frontend_dist / "index.html").read_text(),
+                headers={"Cache-Control": "no-cache, no-store, must-revalidate"}
+            )
         
         target = frontend_dist / file_path
         if target.exists() and target.is_file():
             return FileResponse(target)
         
         # Fallback to index.html for SPA routing
-        return HTMLResponse((frontend_dist / "index.html").read_text())
+        return HTMLResponse(
+            (frontend_dist / "index.html").read_text(),
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"}
+        )
