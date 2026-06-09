@@ -65,7 +65,9 @@ export const SyncDualPlayer: React.FC = () => {
 
   // OCR / Compare Copy States
   const [isOcrActive, setIsOcrActive] = useState(false);
-  const [ocrLanguage, setOcrLanguage] = useState("eng"); // default to English
+  const [ocrLanguage, setOcrLanguage] = useState("eng+pol"); // default to multi-language
+  const [ocrCustomLanguage, setOcrCustomLanguage] = useState("");
+  const [ocrInvertColors, setOcrInvertColors] = useState(false);
   const [ocrBoxAcceptance, setOcrBoxAcceptance] = useState<{startX: number, startY: number, endX: number, endY: number} | null>(null);
   const [ocrBoxEmission, setOcrBoxEmission] = useState<{startX: number, startY: number, endX: number, endY: number} | null>(null);
   const [activeOcrBox, setActiveOcrBox] = useState<{startX: number, startY: number, endX: number, endY: number, sourceVideo: "acceptance" | "emission"} | null>(null);
@@ -1413,17 +1415,49 @@ export const SyncDualPlayer: React.FC = () => {
   const extractTextFromVideo = async (video: HTMLVideoElement, box: {startX: number, startY: number, endX: number, endY: number}) => {
     const width = box.endX - box.startX;
     const height = box.endY - box.startY;
+    
+    // Upscale by 3x to improve OCR accuracy for small or compressed video text
+    const scale = 3;
+    // Add 20px padding to help Tesseract detect text block boundaries
+    const padding = 20;
     const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
+    canvas.width = width * scale + padding * 2;
+    canvas.height = height * scale + padding * 2;
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
     if (!ctx) return "";
     
-    ctx.drawImage(video, box.startX, box.startY, width, height, 0, 0, width, height);
+    // Fill background (white by default, black if inverted)
+    ctx.fillStyle = ocrInvertColors ? "black" : "white";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    // Disable smoothing to keep text edges sharp
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(video, box.startX, box.startY, width, height, padding, padding, width * scale, height * scale);
+    
+    // Apply grayscale filter, contrast boost, and optional color inversion
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = imageData.data;
+    for (let i = 0; i < data.length; i += 4) {
+      let avg = (data[i] + data[i + 1] + data[i + 2]) / 3;
+      
+      // Slight contrast boost
+      avg = avg < 128 ? Math.max(0, avg - 20) : Math.min(255, avg + 20);
+      
+      if (ocrInvertColors) {
+        avg = 255 - avg;
+      }
+      
+      data[i] = avg;
+      data[i + 1] = avg;
+      data[i + 2] = avg;
+    }
+    ctx.putImageData(imageData, 0, 0);
+
     const dataUrl = canvas.toDataURL("image/png");
     
     try {
-      const result = await Tesseract.recognize(dataUrl, ocrLanguage);
+      const activeLang = ocrLanguage === "custom" && ocrCustomLanguage.length > 0 ? ocrCustomLanguage : (ocrLanguage === "custom" ? "eng" : ocrLanguage);
+      const result = await Tesseract.recognize(dataUrl, activeLang);
       return result.data.text.trim();
     } catch (err) {
       console.error("OCR error:", err);
@@ -1609,7 +1643,7 @@ export const SyncDualPlayer: React.FC = () => {
     const isDrawingBox = activeOcrBox?.sourceVideo === sourceVideo;
     
     return (
-      <svg className="absolute top-0 left-0 w-full h-full pointer-events-none z-20">
+      <svg className="absolute top-4 left-4 w-[calc(100%-2rem)] h-[calc(100%-2rem)] pointer-events-none z-20">
         {box && (
           <rect
             x={mapToScreen(box.startX, box.startY).x}
@@ -2294,19 +2328,52 @@ export const SyncDualPlayer: React.FC = () => {
               <DocumentTextIcon className="w-5 h-5" /> Compare Copy (OCR)
             </h3>
             <div className="flex items-center gap-3">
-              <span className="text-xs font-semibold text-purple-700">Język OCR:</span>
-              <select 
-                value={ocrLanguage}
-                onChange={(e) => setOcrLanguage(e.target.value)}
-                className="text-xs border-purple-200 rounded px-2 py-1 bg-white focus:ring-purple-500 text-purple-900 cursor-pointer"
-              >
-                <option value="eng">Angielski (eng)</option>
-                <option value="pol">Polski (pol)</option>
-                <option value="deu">Niemiecki (deu)</option>
-                <option value="fra">Francuski (fra)</option>
-                <option value="spa">Hiszpański (spa)</option>
-                <option value="ita">Włoski (ita)</option>
-              </select>
+              <label className="flex items-center gap-1.5 text-xs text-purple-800 cursor-pointer hover:bg-purple-100 px-2 py-1 rounded transition-colors">
+                <input 
+                  type="checkbox" 
+                  checked={ocrInvertColors}
+                  onChange={(e) => setOcrInvertColors(e.target.checked)}
+                  className="rounded text-purple-600 focus:ring-purple-500 w-3 h-3 cursor-pointer"
+                />
+                Jasny tekst na ciemnym tle (odwróć kolory)
+              </label>
+              
+              <div className="w-px h-4 bg-purple-200 mx-1"></div>
+
+              <span className="text-xs font-semibold text-purple-700">Język:</span>
+              <div className="flex items-center gap-1">
+                <select 
+                  value={ocrLanguage}
+                  onChange={(e) => setOcrLanguage(e.target.value)}
+                  className="text-xs border-purple-200 rounded px-2 py-1 bg-white focus:ring-purple-500 text-purple-900 cursor-pointer"
+                >
+                  <option value="eng+pol">Auto (Angielski + Polski)</option>
+                  <option value="eng">Angielski (eng)</option>
+                  <option value="pol">Polski (pol)</option>
+                  <option value="deu">Niemiecki (deu)</option>
+                  <option value="fra">Francuski (fra)</option>
+                  <option value="spa">Hiszpański (spa)</option>
+                  <option value="ita">Włoski (ita)</option>
+                  <option value="bul">Bułgarski - Cyrylica (bul)</option>
+                  <option value="ces">Czeski (ces)</option>
+                  <option value="slk">Słowacki (slk)</option>
+                  <option value="ron">Rumuński (ron)</option>
+                  <option value="hun">Węgierski (hun)</option>
+                  <option value="nld">Holenderski (nld)</option>
+                  <option value="custom">Inny (Wpisz ręcznie)...</option>
+                </select>
+                {ocrLanguage === "custom" && (
+                  <input
+                    type="text"
+                    value={ocrCustomLanguage}
+                    onChange={(e) => setOcrCustomLanguage(e.target.value.toLowerCase().replace(/[^a-z]/g, ''))}
+                    placeholder="np. ell"
+                    className="w-16 text-xs border-purple-200 rounded px-2 py-1 focus:ring-purple-500 text-purple-900"
+                    maxLength={3}
+                    title="Podaj 3-literowy kod języka (ISO 639-2)"
+                  />
+                )}
+              </div>
             </div>
           </div>
           
