@@ -6,6 +6,23 @@ Projekt składa się z dwóch elementów: czystego frontendu oraz minimalistyczn
 
 ## 🚀 Jak uruchomić projekt lokalnie?
 
+### Wymagania wstępne (Pierwsze uruchomienie)
+Zanim uruchomisz aplikację na nowym urządzeniu, upewnij się, że masz zainstalowane środowiska i zależności:
+1. **Frontend:** Wymaga Node.js (najlepiej w wersji LTS). W folderze `frontend` zainstaluj zależności:
+   ```bash
+   cd frontend
+   npm install
+   cd ..
+   ```
+2. **Backend:** Wymaga Pythona 3. W folderze `backend` utwórz środowisko wirtualne i zainstaluj pakiety:
+   ```bash
+   cd backend
+   python3 -m venv venv
+   source venv/bin/activate
+   pip install -r requirements.txt
+   cd ..
+   ```
+
 ### Opcja 1: Uruchomienie jednym poleceniem (Rekomendowane)
 Przygotowałem specjalny skrypt automatyzujący. Z poziomu głównego katalogu (`Sync_DualPlayer`) wpisz po prostu w terminalu:
 

@@ -50,7 +50,7 @@ interface VideoFile {
 interface ReportItem {
   id: string;
   timecode: number;
-  type: "visual" | "ocr" | "unified";
+  type: "visual" | "ocr" | "unified" | "single";
   comment: string;
   acceptanceImage?: string;
   emissionImage?: string;
@@ -136,6 +136,9 @@ export const SyncDualPlayer: React.FC = () => {
     { time: number; severity: "certain" | "review" }[]
   >([]);
   const [screenshotSaving, setScreenshotSaving] = useState(false);
+
+  // ── Single Player Mode State ────────────────────────────────────────────────
+  const [isSinglePlayerMode, setIsSinglePlayerMode] = useState(false);
 
   // Video Refs
   const acceptanceVideoRef = useRef<HTMLVideoElement>(null);
@@ -1055,14 +1058,16 @@ export const SyncDualPlayer: React.FC = () => {
   // ── Screenshot ───────────────────────────────────────────────────────────
   const captureScreenshot = useCallback(async () => {
     const accVideo = acceptanceVideoRef.current;
+    if (!accVideo) return;
+    
     const emiVideo = emissionVideoRef.current;
-    if (!accVideo || !emiVideo) return;
+    if (!isSinglePlayerMode && !emiVideo) return;
 
     // Pause first so both frames are stable
     const wasPlaying = !accVideo.paused;
     if (wasPlaying) {
       accVideo.pause();
-      emiVideo.pause();
+      if (!isSinglePlayerMode && emiVideo) emiVideo.pause();
     }
 
     // Wait one animation frame so the browser has rendered the paused frame
@@ -1077,7 +1082,7 @@ export const SyncDualPlayer: React.FC = () => {
       const LABEL_H = 60;
 
       const canvas = document.createElement("canvas");
-      canvas.width  = SIDE_W * 2;          // 1920px total
+      canvas.width  = isSinglePlayerMode ? SIDE_W : SIDE_W * 2;
       canvas.height = SIDE_H + LABEL_H;
       const ctx = canvas.getContext("2d")!;
 
@@ -1087,11 +1092,13 @@ export const SyncDualPlayer: React.FC = () => {
 
       // Draw frames
       if (accVideo.readyState >= 2) ctx.drawImage(accVideo, 0, LABEL_H, SIDE_W, SIDE_H);
-      if (emiVideo.readyState >= 2) ctx.drawImage(emiVideo, SIDE_W, LABEL_H, SIDE_W, SIDE_H);
+      if (!isSinglePlayerMode && emiVideo && emiVideo.readyState >= 2) {
+        ctx.drawImage(emiVideo, SIDE_W, LABEL_H, SIDE_W, SIDE_H);
+      }
 
       // Diff overlay on both sides
       const overlayCanvas = overlayCanvasRef.current;
-      if (overlayCanvas && overlayCanvas.width > 0 && diffMode) {
+      if (!isSinglePlayerMode && overlayCanvas && overlayCanvas.width > 0 && diffMode) {
         ctx.globalAlpha = 0.85;
         ctx.globalCompositeOperation = "screen";
         ctx.drawImage(overlayCanvas, 0, LABEL_H, SIDE_W, SIDE_H);
@@ -1101,49 +1108,55 @@ export const SyncDualPlayer: React.FC = () => {
       }
 
       // Center divider
-      ctx.strokeStyle = "rgba(255,255,255,0.5)";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(SIDE_W, LABEL_H);
-      ctx.lineTo(SIDE_W, canvas.height);
-      ctx.stroke();
+      if (!isSinglePlayerMode) {
+        ctx.strokeStyle = "rgba(255,255,255,0.5)";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(SIDE_W, LABEL_H);
+        ctx.lineTo(SIDE_W, canvas.height);
+        ctx.stroke();
+      }
 
       // Label bar
       const tc = formatTimecode(accVideo.currentTime);
-      // Green strip (acceptance)
-      ctx.fillStyle = "#14532d";
+      
+      // Green/Purple strip (acceptance)
+      ctx.fillStyle = isSinglePlayerMode ? "#4c1d95" : "#14532d";
       ctx.fillRect(0, 0, SIDE_W, LABEL_H);
-      ctx.fillStyle = "#22c55e";
+      ctx.fillStyle = isSinglePlayerMode ? "#c4b5fd" : "#22c55e";
       ctx.font = "bold 18px 'Courier New', monospace";
       ctx.textBaseline = "middle";
-      ctx.fillText("ACCEPTANCE", 20, 22);
-      ctx.fillStyle = "#86efac";
+      ctx.fillText(isSinglePlayerMode ? "INSPEKCJA" : "ACCEPTANCE", 20, 22);
+      ctx.fillStyle = isSinglePlayerMode ? "#e2e8f0" : "#86efac";
       ctx.font = "13px 'Courier New', monospace";
       ctx.fillText(acceptanceFile?.name?.slice(0, 40) ?? "", 20, 46);
 
-      // Red strip (emission)
-      ctx.fillStyle = "#450a0a";
-      ctx.fillRect(SIDE_W, 0, SIDE_W, LABEL_H);
-      ctx.fillStyle = "#ef4444";
-      ctx.font = "bold 18px 'Courier New', monospace";
-      ctx.fillText("EMISSION", SIDE_W + 20, 22);
-      ctx.fillStyle = "#fca5a5";
-      ctx.font = "13px 'Courier New', monospace";
-      ctx.fillText(emissionFile?.name?.slice(0, 40) ?? "", SIDE_W + 20, 46);
+      if (!isSinglePlayerMode) {
+        // Red strip (emission)
+        ctx.fillStyle = "#450a0a";
+        ctx.fillRect(SIDE_W, 0, SIDE_W, LABEL_H);
+        ctx.fillStyle = "#ef4444";
+        ctx.font = "bold 18px 'Courier New', monospace";
+        ctx.fillText("EMISSION", SIDE_W + 20, 22);
+        ctx.fillStyle = "#fca5a5";
+        ctx.font = "13px 'Courier New', monospace";
+        ctx.fillText(emissionFile?.name?.slice(0, 40) ?? "", SIDE_W + 20, 46);
+      }
 
       // Timecode centered at top
       ctx.fillStyle = "#1e293b";
-      ctx.fillRect(SIDE_W - 90, 0, 180, LABEL_H);
+      const timecodeX = isSinglePlayerMode ? SIDE_W / 2 : SIDE_W;
+      ctx.fillRect(timecodeX - 90, 0, 180, LABEL_H);
       ctx.fillStyle = "#f8fafc";
       ctx.font = "bold 16px 'Courier New', monospace";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText(tc, SIDE_W, LABEL_H / 2);
+      ctx.fillText(tc, timecodeX, LABEL_H / 2);
       ctx.textAlign = "left";
       ctx.textBaseline = "alphabetic";
 
       // Diff legend (bottom-right corner)
-      if (diffMode) {
+      if (!isSinglePlayerMode && diffMode) {
         ctx.fillStyle = "rgba(15,23,42,0.85)";
         ctx.fillRect(canvas.width - 210, canvas.height - 56, 200, 50);
         ctx.fillStyle = "#dc2626";
@@ -1168,8 +1181,8 @@ export const SyncDualPlayer: React.FC = () => {
 
       dropsToRender.forEach((drop) => {
         const isAcc = drop.sourceVideo === "acceptance";
-        const scaleX = SIDE_W / (isAcc ? accVideo.videoWidth : emiVideo.videoWidth);
-        const scaleY = SIDE_H / (isAcc ? accVideo.videoHeight : emiVideo.videoHeight);
+        const scaleX = SIDE_W / (isAcc ? accVideo.videoWidth : (emiVideo?.videoWidth || 1));
+        const scaleY = SIDE_H / (isAcc ? accVideo.videoHeight : (emiVideo?.videoHeight || 1));
         
         let drawX = drop.sourceX * scaleX;
         let drawY = drop.sourceY * scaleY + LABEL_H;
@@ -1225,8 +1238,8 @@ export const SyncDualPlayer: React.FC = () => {
         
         linesToRender.forEach((line) => {
           const isAcc = line.sourceVideo === "acceptance";
-          const scaleX = SIDE_W / (isAcc ? accVideo.videoWidth : emiVideo.videoWidth);
-          const scaleY = SIDE_H / (isAcc ? accVideo.videoHeight : emiVideo.videoHeight);
+          const scaleX = SIDE_W / (isAcc ? accVideo.videoWidth : (emiVideo?.videoWidth || 1));
+          const scaleY = SIDE_H / (isAcc ? accVideo.videoHeight : (emiVideo?.videoHeight || 1));
           
           let drawStartX = line.startX * scaleX;
           let drawStartY = line.startY * scaleY + LABEL_H;
@@ -1304,7 +1317,7 @@ export const SyncDualPlayer: React.FC = () => {
         // Resume playback if it was playing before
         if (wasPlaying) {
           accVideo.play().catch(() => {});
-          emiVideo.play().catch(() => {});
+          emiVideo?.play().catch(() => {});
           setIsPlaying(true);
         }
       }, "image/png");
@@ -1596,9 +1609,11 @@ export const SyncDualPlayer: React.FC = () => {
       };
 
       acceptanceImage = await captureContainer("acceptance-container", acceptanceVideoRef);
-      emissionImage = await captureContainer("emission-container", emissionVideoRef);
+      if (!isSinglePlayerMode) {
+        emissionImage = await captureContainer("emission-container", emissionVideoRef);
+      }
       
-      if (diffMode && wipeCanvasRef.current) {
+      if (!isSinglePlayerMode && diffMode && wipeCanvasRef.current) {
         try { diffImage = wipeCanvasRef.current.toDataURL("image/jpeg", 0.8); } catch(e) {}
       }
       if (isOcrActive) {
@@ -1619,14 +1634,14 @@ export const SyncDualPlayer: React.FC = () => {
     setPendingReportItem({
         id: Date.now().toString(),
         timecode: currentTime,
-        type: "unified" as any,
+        type: isSinglePlayerMode ? "single" : "unified",
         comment: "",
         acceptanceImage,
         emissionImage,
         diffImage,
         ocrPanelImage,
         ocrTextAcceptance: isOcrActive ? ocrTextAcceptance : undefined,
-        ocrTextEmission: isOcrActive ? ocrTextEmission : undefined,
+        ocrTextEmission: (isOcrActive && !isSinglePlayerMode) ? ocrTextEmission : undefined,
         ocrBriefText: isOcrActive ? ocrBriefText : undefined,
       });
     setCapturingReport(false);
@@ -1688,21 +1703,29 @@ export const SyncDualPlayer: React.FC = () => {
         doc.setFont("helvetica", "normal");
       }
 
-      if (item.type === "visual" || item.type === "unified") {
+      if (item.type === "visual" || item.type === "unified" || item.type === "single") {
         let hasVideoImages = false;
-        if (item.acceptanceImage) {
+        if (item.type === "single" && item.acceptanceImage) {
           hasVideoImages = true;
           doc.setFontSize(9);
-          doc.text("Wideo Acceptance:", 20, yOffset);
-          doc.addImage(item.acceptanceImage, "JPEG", 20, yOffset + 3, 80, 45);
+          doc.text("Wideo (Inspekcja):", 20, yOffset);
+          doc.addImage(item.acceptanceImage, "JPEG", 20, yOffset + 3, 170, 95);
+          yOffset += 105;
+        } else {
+          if (item.acceptanceImage) {
+            hasVideoImages = true;
+            doc.setFontSize(9);
+            doc.text("Wideo Acceptance:", 20, yOffset);
+            doc.addImage(item.acceptanceImage, "JPEG", 20, yOffset + 3, 80, 45);
+          }
+          if (item.emissionImage) {
+            hasVideoImages = true;
+            doc.setFontSize(9);
+            doc.text("Wideo Emission:", 110, yOffset);
+            doc.addImage(item.emissionImage, "JPEG", 110, yOffset + 3, 80, 45);
+          }
+          if (hasVideoImages) yOffset += 55;
         }
-        if (item.emissionImage) {
-          hasVideoImages = true;
-          doc.setFontSize(9);
-          doc.text("Wideo Emission:", 110, yOffset);
-          doc.addImage(item.emissionImage, "JPEG", 110, yOffset + 3, 80, 45);
-        }
-        if (hasVideoImages) yOffset += 55;
 
         if (item.diffImage) {
           if (yOffset > 220) { doc.addPage(); yOffset = 20; }
@@ -1767,24 +1790,32 @@ export const SyncDualPlayer: React.FC = () => {
             return currentY + 7;
           };
 
-          doc.setFontSize(9);
-          doc.setFont("helvetica", "normal");
-          doc.text("Acceptance:", 20, yOffset);
-          yOffset += 4;
-          yOffset = renderColoredDiff(briefBase, accBase, 20, yOffset, 160);
-          
-          doc.setFont("helvetica", "normal");
-          doc.setTextColor(31, 41, 55);
-          doc.text("Emission:", 20, yOffset);
-          yOffset += 4;
-          yOffset = renderColoredDiff(briefBase, emBase, 20, yOffset, 160);
-          
-          if (item.ocrBriefText && item.ocrTextAcceptance && item.ocrTextEmission) {
-            doc.setFont("helvetica", "bold");
-            doc.setTextColor(31, 41, 55);
-            doc.text("Bezposrednie porownanie (Acc vs Em):", 20, yOffset);
+          if (item.type === "single") {
+            doc.setFontSize(9);
+            doc.setFont("helvetica", "normal");
+            doc.text("Wideo:", 20, yOffset);
             yOffset += 4;
-            yOffset = renderColoredDiff(accBase, emBase, 20, yOffset, 160);
+            yOffset = renderColoredDiff(briefBase, accBase, 20, yOffset, 160);
+          } else {
+            doc.setFontSize(9);
+            doc.setFont("helvetica", "normal");
+            doc.text("Acceptance:", 20, yOffset);
+            yOffset += 4;
+            yOffset = renderColoredDiff(briefBase, accBase, 20, yOffset, 160);
+            
+            doc.setFont("helvetica", "normal");
+            doc.setTextColor(31, 41, 55);
+            doc.text("Emission:", 20, yOffset);
+            yOffset += 4;
+            yOffset = renderColoredDiff(briefBase, emBase, 20, yOffset, 160);
+            
+            if (item.ocrBriefText && item.ocrTextAcceptance && item.ocrTextEmission) {
+              doc.setFont("helvetica", "bold");
+              doc.setTextColor(31, 41, 55);
+              doc.text("Bezposrednie porownanie (Acc vs Em):", 20, yOffset);
+              yOffset += 4;
+              yOffset = renderColoredDiff(accBase, emBase, 20, yOffset, 160);
+            }
           }
         }
       }
@@ -1804,7 +1835,7 @@ export const SyncDualPlayer: React.FC = () => {
       accText = await extractTextFromVideo(acceptanceVideoRef.current, ocrBoxAcceptance);
       setOcrTextAcceptance(accText);
     }
-    if (ocrBoxEmission && emissionVideoRef.current && emissionVideoRef.current.readyState >= 2) {
+    if (!isSinglePlayerMode && ocrBoxEmission && emissionVideoRef.current && emissionVideoRef.current.readyState >= 2) {
       emiText = await extractTextFromVideo(emissionVideoRef.current, ocrBoxEmission);
       setOcrTextEmission(emiText);
     }
@@ -2029,11 +2060,30 @@ export const SyncDualPlayer: React.FC = () => {
           </p>
         </div>
 
+        {/* ── Single Player Mode Toggle ── */}
+        <div className="flex items-center gap-2 flex-shrink-0 mr-4">
+          <button
+            onClick={() => {
+              const newMode = !isSinglePlayerMode;
+              setIsSinglePlayerMode(newMode);
+              if (newMode && diffMode) deactivateDiffMode();
+            }}
+            title={isSinglePlayerMode ? "Przełącz na dwa odtwarzacze" : "Przełącz na jeden odtwarzacz"}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold shadow-sm transition-all ${
+              isSinglePlayerMode
+                ? "bg-purple-600 hover:bg-purple-700 text-white shadow-purple-600/20"
+                : "bg-gray-100 hover:bg-gray-200 text-gray-700"
+            }`}
+          >
+            {isSinglePlayerMode ? "Tryb Single" : "Tryb Dual"}
+          </button>
+        </div>
+
         {/* ── Diff Mode Toolbar ── */}
         <div className="flex items-center gap-2 flex-shrink-0">
           <button
             onClick={() => diffMode ? deactivateDiffMode() : activateDiffMode()}
-            disabled={!acceptanceFile || !emissionFile}
+            disabled={(!acceptanceFile || !emissionFile) || isSinglePlayerMode}
             title={diffMode ? "Wyłącz tryb porównania" : "Włącz tryb porównania (Diff Overlay)"}
             className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold shadow-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
               diffMode
@@ -2050,7 +2100,7 @@ export const SyncDualPlayer: React.FC = () => {
 
           <button
             onClick={captureScreenshot}
-            disabled={!acceptanceFile || !emissionFile || screenshotSaving}
+            disabled={!acceptanceFile || (!isSinglePlayerMode && !emissionFile) || screenshotSaving}
             title="Zapisz screenshot do Downloads"
             className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold shadow-sm bg-gray-800 hover:bg-gray-900 text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed"
           >
@@ -2135,7 +2185,6 @@ export const SyncDualPlayer: React.FC = () => {
           </div>
         </div>
       )}
-
       {/* ── No-diff info (diff mode active, no differences yet) ── */}
       {diffMode && diffTimestamps.length === 0 && isAnalyzing && (
         <div className="mb-6 px-5 py-3 bg-green-50 border border-green-200 rounded-2xl text-sm text-green-700 flex items-center gap-2">
@@ -2145,7 +2194,7 @@ export const SyncDualPlayer: React.FC = () => {
       )}
 
       {/* Video Panels Area */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+      <div className={`grid grid-cols-1 ${isSinglePlayerMode ? '' : 'lg:grid-cols-2'} gap-6 mb-8`}>
         
         {/* Acceptance Video Panel */}
         <div
@@ -2155,12 +2204,16 @@ export const SyncDualPlayer: React.FC = () => {
           onDrop={(e) => handleDrop(e, "acceptance")}
           className={`bg-white rounded-2xl shadow-sm border overflow-hidden transition-all duration-200 ${
             isDraggingAcceptance ? "border-green-500 ring-4 ring-green-100 scale-[1.01]" : "border-gray-200"
-          }`}
+          } ${isSinglePlayerMode ? "max-w-[90%] mx-auto w-full" : ""}`}
         >
           {/* Header Panel */}
-          <div className="px-6 py-4 border-b border-gray-100 bg-green-50/50 flex justify-between items-center">
+          <div className={`px-6 py-4 border-b border-gray-100 flex justify-between items-center ${
+            isSinglePlayerMode ? 'bg-purple-50/50' : 'bg-green-50/50'
+          }`}>
             <div>
-              <h3 className="font-semibold text-green-800">Acceptance</h3>
+              <h3 className={`font-semibold ${isSinglePlayerMode ? 'text-purple-800' : 'text-green-800'}`}>
+                {isSinglePlayerMode ? 'Podgląd Wideo (Inspekcja)' : 'Acceptance (Wzorzec)'}
+              </h3>
               {acceptanceFile && (
                 <p className="text-xs text-gray-500 flex items-center mt-0.5" title={acceptanceFile.name}>
                   <span className="truncate max-w-[200px]">{acceptanceFile.name}</span>
@@ -2173,7 +2226,9 @@ export const SyncDualPlayer: React.FC = () => {
               )}
             </div>
             {acceptanceFile && (
-              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-green-100 text-green-800 uppercase">
+              <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                isSinglePlayerMode ? 'bg-purple-100 text-purple-800' : 'bg-green-100 text-green-800'
+              }`}>
                 {acceptanceFile.isLocal ? "Lokalny" : "Serwer"}
               </span>
             )}
@@ -2301,6 +2356,7 @@ export const SyncDualPlayer: React.FC = () => {
         </div>
 
         {/* Emission Video Panel */}
+        {!isSinglePlayerMode && (
         <div
           onDragEnter={(e) => handleDragEnter(e, "emission")}
           onDragOver={handleDragOver}
@@ -2452,6 +2508,7 @@ export const SyncDualPlayer: React.FC = () => {
             </div>
           </div>
         </div>
+        )}
       </div>
 
       {/* Synchronized Playback Control Dashboard */}
