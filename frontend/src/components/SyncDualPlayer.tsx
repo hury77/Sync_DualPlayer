@@ -182,7 +182,7 @@ export const SyncDualPlayer: React.FC = () => {
       URL.revokeObjectURL(file.url);
     }
     
-    // Jeśli plik był wgrany na serwer (niezależnie czy wygenerowano mp4 czy nie), usuń go trwale
+    // If the file was uploaded to the server (niezależnie czy wygenerowano mp4 czy nie), usuń go trwale
     if (file.fileId !== undefined) {
       // DEV i LIVE różnice w URL, używamy względnego dla proxy w vite
       const apiBase = ''; 
@@ -226,7 +226,7 @@ export const SyncDualPlayer: React.FC = () => {
       setAcceptanceLoading(true);
       setAcceptanceError(null);
       setAcceptanceProgress(0);
-      setAcceptanceLoadingMessage("Wysyłanie wideo na serwer...");
+      setAcceptanceLoadingMessage("Uploading video to server...");
     } else {
       // Clear previous poll if any
       if (activePollsRef.current.emission) {
@@ -236,7 +236,7 @@ export const SyncDualPlayer: React.FC = () => {
       setEmissionLoading(true);
       setEmissionError(null);
       setEmissionProgress(0);
-      setEmissionLoadingMessage("Wysyłanie wideo na serwer...");
+      setEmissionLoadingMessage("Uploading video to server...");
     }
 
     const formData = new FormData();
@@ -264,7 +264,7 @@ export const SyncDualPlayer: React.FC = () => {
         try {
           const statusRes = await fetch(`/api/v1/files/${fileId}`);
           if (!statusRes.ok) {
-            throw new Error(`Błąd pobierania statusu: ${statusRes.status}`);
+            throw new Error(`Status fetching error: ${statusRes.status}`);
           }
           const fileStatus = await statusRes.json();
 
@@ -316,24 +316,24 @@ export const SyncDualPlayer: React.FC = () => {
             if (isAcc) {
               if (typeof progress === "number") {
                 setAcceptanceProgress(progress);
-                setAcceptanceLoadingMessage(`Transkodowanie wideo... ${progress}% (upłynęło ${elapsed}s)`);
+                setAcceptanceLoadingMessage(`Transcoding video... ${progress}% (elapsed ${elapsed}s)`);
               } else {
-                setAcceptanceLoadingMessage(`Transkodowanie wideo... (upłynęło ${elapsed}s)`);
+                setAcceptanceLoadingMessage(`Transcoding video... (elapsed ${elapsed}s)`);
               }
               activePollsRef.current.acceptance = setTimeout(pollStatus, 2000);
             } else {
               if (typeof progress === "number") {
                 setEmissionProgress(progress);
-                setEmissionLoadingMessage(`Transkodowanie wideo... ${progress}% (upłynęło ${elapsed}s)`);
+                setEmissionLoadingMessage(`Transcoding video... ${progress}% (elapsed ${elapsed}s)`);
               } else {
-                setEmissionLoadingMessage(`Transkodowanie wideo... (upłynęło ${elapsed}s)`);
+                setEmissionLoadingMessage(`Transcoding video... (elapsed ${elapsed}s)`);
               }
               activePollsRef.current.emission = setTimeout(pollStatus, 2000);
             }
           }
         } catch (pollErr: any) {
-          console.error(`Błąd w trakcie odpytywania statusu ${type}:`, pollErr);
-          const errorMsg = pollErr.message || "Błąd transkodowania pliku wideo.";
+          console.error(`Error during status polling ${type}:`, pollErr);
+          const errorMsg = pollErr.message || "Video file transcoding error.";
           if (isAcc) {
             setAcceptanceError(errorMsg);
             setAcceptanceLoading(false);
@@ -364,8 +364,8 @@ export const SyncDualPlayer: React.FC = () => {
       }
 
     } catch (err: any) {
-      console.error(`Błąd przesyłania/przetwarzania pliku ${type}:`, err);
-      const errorMsg = err.message || "Nie udało się przesłać i przetworzyć wideo.";
+      console.error(`Upload error/file processing ${type}:`, err);
+      const errorMsg = err.message || "Failed to upload and process video.";
       if (isAcc) {
         setAcceptanceError(errorMsg);
       } else {
@@ -1497,7 +1497,7 @@ export const SyncDualPlayer: React.FC = () => {
       return result.data.text.trim();
     } catch (err) {
       console.error("OCR error:", err);
-      return "Błąd odczytu tekstu.";
+      return "Text extraction error.";
     }
   };
 
@@ -1666,7 +1666,7 @@ export const SyncDualPlayer: React.FC = () => {
     const doc = new jsPDF();
     doc.setFont("helvetica", "bold");
     doc.setFontSize(20);
-    doc.text("Raport QA - Sync DualPlayer", 20, 20);
+    doc.text("QA Report - Sync DualPlayer", 20, 20);
     
     doc.setFont("helvetica", "normal");
     doc.setFontSize(10);
@@ -1689,7 +1689,7 @@ export const SyncDualPlayer: React.FC = () => {
       doc.setFont("helvetica", "bold");
       doc.setFontSize(12);
       doc.setTextColor(31, 41, 55);
-      doc.text(`Zrzut #${index + 1} - Czas wideo: ${item.timecode.toFixed(3)}s [Typ: ${item.type.toUpperCase()}]`, 22, yOffset);
+      doc.text(`Zrzut #${index + 1} - Video time: ${item.timecode.toFixed(3)}s [Typ: ${item.type.toUpperCase()}]`, 22, yOffset);
       yOffset += 10;
       
       // Comment
@@ -1708,20 +1708,20 @@ export const SyncDualPlayer: React.FC = () => {
         if (item.type === "single" && item.acceptanceImage) {
           hasVideoImages = true;
           doc.setFontSize(9);
-          doc.text("Wideo (Inspekcja):", 20, yOffset);
+          doc.text("Video (Inspekcja):", 20, yOffset);
           doc.addImage(item.acceptanceImage, "JPEG", 20, yOffset + 3, 170, 95);
           yOffset += 105;
         } else {
           if (item.acceptanceImage) {
             hasVideoImages = true;
             doc.setFontSize(9);
-            doc.text("Wideo Acceptance:", 20, yOffset);
+            doc.text("Video Acceptance:", 20, yOffset);
             doc.addImage(item.acceptanceImage, "JPEG", 20, yOffset + 3, 80, 45);
           }
           if (item.emissionImage) {
             hasVideoImages = true;
             doc.setFontSize(9);
-            doc.text("Wideo Emission:", 110, yOffset);
+            doc.text("Video Emission:", 110, yOffset);
             doc.addImage(item.emissionImage, "JPEG", 110, yOffset + 3, 80, 45);
           }
           if (hasVideoImages) yOffset += 55;
@@ -1751,8 +1751,8 @@ export const SyncDualPlayer: React.FC = () => {
           doc.text("Odczyt OCR i Roznice Tekstu:", 20, yOffset);
           yOffset += 6;
           
-          const accBase = item.ocrTextAcceptance || "Brak odczytu.";
-          const emBase = item.ocrTextEmission || "Brak odczytu.";
+          const accBase = item.ocrTextAcceptance || "None odczytu.";
+          const emBase = item.ocrTextEmission || "None odczytu.";
           const briefBase = item.ocrBriefText || accBase;
 
           const renderColoredDiff = (text1: string, text2: string, startX: number, startY: number, maxWidth: number) => {
@@ -1793,7 +1793,7 @@ export const SyncDualPlayer: React.FC = () => {
           if (item.type === "single") {
             doc.setFontSize(9);
             doc.setFont("helvetica", "normal");
-            doc.text("Wideo:", 20, yOffset);
+            doc.text("Video:", 20, yOffset);
             yOffset += 4;
             yOffset = renderColoredDiff(briefBase, accBase, 20, yOffset, 160);
           } else {
@@ -1812,7 +1812,7 @@ export const SyncDualPlayer: React.FC = () => {
             if (item.ocrBriefText && item.ocrTextAcceptance && item.ocrTextEmission) {
               doc.setFont("helvetica", "bold");
               doc.setTextColor(31, 41, 55);
-              doc.text("Bezposrednie porownanie (Acc vs Em):", 20, yOffset);
+              doc.text("Direct comparison (Acc vs Em):", 20, yOffset);
               yOffset += 4;
               yOffset = renderColoredDiff(accBase, emBase, 20, yOffset, 160);
             }
@@ -2056,7 +2056,7 @@ export const SyncDualPlayer: React.FC = () => {
         <div>
           <h2 className="text-2xl font-bold text-gray-900 mb-1">Sync Dual Player</h2>
           <p className="text-gray-500 text-sm">
-            Przeciągnij i upuść pliki wideo, aby odtworzyć je obok siebie w pełnej synchronizacji. Obsługuje formaty MP4, MOV oraz MXF.
+            Drag and drop video files to play them side by side in full sync. Supports MP4, MOV and MXF formats.
           </p>
         </div>
 
@@ -2068,14 +2068,14 @@ export const SyncDualPlayer: React.FC = () => {
               setIsSinglePlayerMode(newMode);
               if (newMode && diffMode) deactivateDiffMode();
             }}
-            title={isSinglePlayerMode ? "Przełącz na dwa odtwarzacze" : "Przełącz na jeden odtwarzacz"}
+            title={isSinglePlayerMode ? "Switch to dual players" : "Switch to single player"}
             className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold shadow-sm transition-all ${
               isSinglePlayerMode
                 ? "bg-purple-600 hover:bg-purple-700 text-white shadow-purple-600/20"
                 : "bg-gray-100 hover:bg-gray-200 text-gray-700"
             }`}
           >
-            {isSinglePlayerMode ? "Tryb Single" : "Tryb Dual"}
+            {isSinglePlayerMode ? "Single Mode" : "Dual Mode"}
           </button>
         </div>
 
@@ -2084,7 +2084,7 @@ export const SyncDualPlayer: React.FC = () => {
           <button
             onClick={() => diffMode ? deactivateDiffMode() : activateDiffMode()}
             disabled={(!acceptanceFile || !emissionFile) || isSinglePlayerMode}
-            title={diffMode ? "Wyłącz tryb porównania" : "Włącz tryb porównania (Diff Overlay)"}
+            title={diffMode ? "Disable Diff Overlay" : "Enable Diff Overlay"}
             className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold shadow-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
               diffMode
                 ? "bg-red-600 hover:bg-red-700 text-white shadow-red-600/20"
@@ -2101,11 +2101,11 @@ export const SyncDualPlayer: React.FC = () => {
           <button
             onClick={captureScreenshot}
             disabled={!acceptanceFile || (!isSinglePlayerMode && !emissionFile) || screenshotSaving}
-            title="Zapisz screenshot do Downloads"
+            title="Save screenshot to Downloads"
             className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold shadow-sm bg-gray-800 hover:bg-gray-900 text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <CameraIcon className="w-4 h-4" />
-            {screenshotSaving ? "Zapisuję…" : "Screenshot"}
+            {screenshotSaving ? "Saving…" : "Screenshot"}
           </button>
         </div>
       </div>
@@ -2212,7 +2212,7 @@ export const SyncDualPlayer: React.FC = () => {
           }`}>
             <div>
               <h3 className={`font-semibold ${isSinglePlayerMode ? 'text-purple-800' : 'text-green-800'}`}>
-                {isSinglePlayerMode ? 'Podgląd Wideo (Inspekcja)' : 'Acceptance (Wzorzec)'}
+                {isSinglePlayerMode ? 'Video Preview (Inspection)' : 'Acceptance (Reference)'}
               </h3>
               {acceptanceFile && (
                 <p className="text-xs text-gray-500 flex items-center mt-0.5" title={acceptanceFile.name}>
@@ -2229,7 +2229,7 @@ export const SyncDualPlayer: React.FC = () => {
               <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
                 isSinglePlayerMode ? 'bg-purple-100 text-purple-800' : 'bg-green-100 text-green-800'
               }`}>
-                {acceptanceFile.isLocal ? "Lokalny" : "Serwer"}
+                {acceptanceFile.isLocal ? "Local" : "Server"}
               </span>
             )}
           </div>
@@ -2239,7 +2239,7 @@ export const SyncDualPlayer: React.FC = () => {
             {acceptanceLoading && (
               <div className="absolute inset-0 z-30 bg-gray-950/85 backdrop-blur-sm flex flex-col items-center justify-center text-white p-6 text-center transition-all duration-200">
                 <div className="animate-spin rounded-full h-12 w-12 border-4 border-green-500 border-t-transparent mb-4 shadow-lg shadow-green-500/20"></div>
-                <p className="font-semibold text-base text-gray-100 tracking-wide mb-3">{acceptanceLoadingMessage || "Przetwarzanie wideo..."}</p>
+                <p className="font-semibold text-base text-gray-100 tracking-wide mb-3">{acceptanceLoadingMessage || "Processing video..."}</p>
                 {acceptanceProgress !== null && acceptanceProgress > 0 && (
                   <div className="w-full max-w-xs bg-gray-800 rounded-full h-2.5 mb-3 overflow-hidden border border-gray-700 shadow-inner">
                     <div 
@@ -2256,7 +2256,7 @@ export const SyncDualPlayer: React.FC = () => {
 
             {acceptanceError && (
               <div className="absolute inset-0 z-30 bg-red-50 p-6 flex flex-col items-center justify-center text-center">
-                <p className="text-red-600 font-semibold mb-2">Błąd Ładowania Wideo</p>
+                <p className="text-red-600 font-semibold mb-2">Video Loading Error</p>
                 <p className="text-xs text-red-500 max-w-sm mb-4">{acceptanceError}</p>
                 <button
                   onClick={() => setAcceptanceError(null)}
@@ -2282,14 +2282,14 @@ export const SyncDualPlayer: React.FC = () => {
                 onMouseUp={handleVideoMouseUp}
                 onMouseLeave={handleVideoMouseUp}
                 onError={() => {
-                  setAcceptanceError("Nie udało się załadować strumienia wideo z serwera (np. plik wygasł w trybie DEV lub brak połączenia).");
+                  setAcceptanceError("Failed to load video stream from server (np. file expired in DEV mode or connection lost).");
                 }}
               />
             ) : (
               <div className="w-full h-full border-2 border-dashed border-gray-300 rounded-xl flex flex-col items-center justify-center p-6 text-center text-gray-400 bg-white">
                 <ArrowUpTrayIcon className="w-12 h-12 text-gray-300 mb-3" />
-                <p className="text-sm font-semibold text-gray-700">Przeciągnij i upuść wideo Acceptance</p>
-                <p className="text-xs text-gray-400 mt-1">Obsługuje MP4, MOV, MXF</p>
+                <p className="text-sm font-semibold text-gray-700">Drag and drop Acceptance video</p>
+                <p className="text-xs text-gray-400 mt-1">Supports MP4, MOV, MXF</p>
               </div>
             )}
             {renderRulerOverlay("acceptance", acceptanceVideoRef)}
@@ -2383,7 +2383,7 @@ export const SyncDualPlayer: React.FC = () => {
             </div>
             {emissionFile && (
               <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-red-100 text-red-800 uppercase">
-                {emissionFile.isLocal ? "Lokalny" : "Serwer"}
+                {emissionFile.isLocal ? "Local" : "Server"}
               </span>
             )}
           </div>
@@ -2393,7 +2393,7 @@ export const SyncDualPlayer: React.FC = () => {
             {emissionLoading && (
               <div className="absolute inset-0 z-30 bg-gray-950/85 backdrop-blur-sm flex flex-col items-center justify-center text-white p-6 text-center transition-all duration-200">
                 <div className="animate-spin rounded-full h-12 w-12 border-4 border-red-500 border-t-transparent mb-4 shadow-lg shadow-red-500/20"></div>
-                <p className="font-semibold text-base text-gray-100 tracking-wide mb-3">{emissionLoadingMessage || "Przetwarzanie wideo..."}</p>
+                <p className="font-semibold text-base text-gray-100 tracking-wide mb-3">{emissionLoadingMessage || "Processing video..."}</p>
                 {emissionProgress !== null && emissionProgress > 0 && (
                   <div className="w-full max-w-xs bg-gray-800 rounded-full h-2.5 mb-3 overflow-hidden border border-gray-700 shadow-inner">
                     <div 
@@ -2410,7 +2410,7 @@ export const SyncDualPlayer: React.FC = () => {
 
             {emissionError && (
               <div className="absolute inset-0 z-30 bg-red-50 p-6 flex flex-col items-center justify-center text-center">
-                <p className="text-red-600 font-semibold mb-2">Błąd Ładowania Wideo</p>
+                <p className="text-red-600 font-semibold mb-2">Video Loading Error</p>
                 <p className="text-xs text-red-500 max-w-sm mb-4">{emissionError}</p>
                 <button
                   onClick={() => setEmissionError(null)}
@@ -2436,14 +2436,14 @@ export const SyncDualPlayer: React.FC = () => {
                 onMouseUp={handleVideoMouseUp}
                 onMouseLeave={handleVideoMouseUp}
                 onError={() => {
-                  setEmissionError("Nie udało się załadować strumienia wideo z serwera (np. plik wygasł w trybie DEV lub brak połączenia).");
+                  setEmissionError("Failed to load video stream from server (np. file expired in DEV mode or connection lost).");
                 }}
               />
             ) : (
               <div className="w-full h-full border-2 border-dashed border-gray-300 rounded-xl flex flex-col items-center justify-center p-6 text-center text-gray-400 bg-white">
                 <ArrowUpTrayIcon className="w-12 h-12 text-gray-300 mb-3" />
-                <p className="text-sm font-semibold text-gray-700">Przeciągnij i upuść wideo Emission</p>
-                <p className="text-xs text-gray-400 mt-1">Obsługuje MP4, MOV, MXF</p>
+                <p className="text-sm font-semibold text-gray-700">Drag and drop Emission video</p>
+                <p className="text-xs text-gray-400 mt-1">Supports MP4, MOV, MXF</p>
               </div>
             )}
             {renderRulerOverlay("emission", emissionVideoRef)}
@@ -2638,7 +2638,7 @@ export const SyncDualPlayer: React.FC = () => {
                   value={rulerColor}
                   onChange={(e) => setRulerColor(e.target.value)}
                   className="w-6 h-6 p-0 border-0 rounded-full overflow-hidden cursor-pointer bg-transparent"
-                  title="Wybierz kolor miarki"
+                  title="Select ruler color"
                 />
               )}
             </div>
@@ -2667,7 +2667,7 @@ export const SyncDualPlayer: React.FC = () => {
                   ? "bg-amber-100 text-amber-700 animate-pulse" 
                   : "bg-amber-50 text-amber-600 hover:bg-amber-100 border border-amber-200/50"
               }`}
-              title="Dodaj obecny widok do Raportu PDF"
+              title="Add current view to PDF Report"
             >
               <CameraIcon className="w-5 h-5" />
             </button>
@@ -2806,7 +2806,7 @@ export const SyncDualPlayer: React.FC = () => {
             {/* OCR Extracted Acceptance */}
             <div className="flex flex-col gap-2">
               <div className="flex items-center justify-between">
-                <label className="text-sm font-semibold text-green-700">Tekst z wideo Acceptance</label>
+                <label className="text-sm font-semibold text-green-700">Text from Acceptance video</label>
                 {ocrBoxAcceptance ? (
                   <span className="text-[10px] bg-green-100 text-green-800 px-2 py-0.5 rounded font-mono">ZAZNACZONO OBSZAR</span>
                 ) : (
@@ -2816,7 +2816,7 @@ export const SyncDualPlayer: React.FC = () => {
               <textarea 
                 value={ocrTextAcceptance}
                 readOnly
-                placeholder="Tutaj pojawi się tekst zczytany z wideo Acceptance..."
+                placeholder="Text extracted from Acceptance video will appear here..."
                 className="w-full h-32 p-3 text-sm border border-gray-300 bg-gray-50 rounded-lg focus:outline-none resize-none font-mono"
               />
             </div>
@@ -2824,7 +2824,7 @@ export const SyncDualPlayer: React.FC = () => {
             {/* OCR Extracted Emission */}
             <div className="flex flex-col gap-2">
               <div className="flex items-center justify-between">
-                <label className="text-sm font-semibold text-red-700">Tekst z wideo Emission</label>
+                <label className="text-sm font-semibold text-red-700">Text from Emission video</label>
                 {ocrBoxEmission ? (
                   <span className="text-[10px] bg-red-100 text-red-800 px-2 py-0.5 rounded font-mono">ZAZNACZONO OBSZAR</span>
                 ) : (
@@ -2834,7 +2834,7 @@ export const SyncDualPlayer: React.FC = () => {
               <textarea 
                 value={ocrTextEmission}
                 readOnly
-                placeholder="Tutaj pojawi się tekst zczytany z wideo Emission..."
+                placeholder="Text extracted from Emission video will appear here..."
                 className="w-full h-32 p-3 text-sm border border-gray-300 bg-gray-50 rounded-lg focus:outline-none resize-none font-mono"
               />
             </div>
@@ -2917,7 +2917,7 @@ export const SyncDualPlayer: React.FC = () => {
             <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
               <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
                 <CameraIcon className="w-5 h-5 text-amber-500" />
-                Dodaj ujęcie do Raportu
+                Add shot to Report
               </h2>
               <button 
                 onClick={() => setPendingReportItem(null)}
@@ -2929,8 +2929,8 @@ export const SyncDualPlayer: React.FC = () => {
             
             <div className="p-6">
               <p className="text-sm text-gray-500 mb-4">
-                Zrzut został przechwycony dla czasu wideo: <span className="font-mono font-bold text-gray-700">{pendingReportItem.timecode.toFixed(3)}s</span>.
-                Możesz dodać krótki komentarz dla innych testerów lub programistów, który pojawi się w pliku PDF.
+                Screenshot captured at video time: <span className="font-mono font-bold text-gray-700">{pendingReportItem.timecode.toFixed(3)}s</span>.
+                Możesz dodać krótki komentarz dla innych testerów lub programistów, that will appear in the PDF file.
               </p>
               
               <textarea
@@ -2946,7 +2946,7 @@ export const SyncDualPlayer: React.FC = () => {
                   onClick={() => setPendingReportItem(null)}
                   className="px-4 py-2 rounded-xl text-sm font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors"
                 >
-                  Anuluj
+                  Cancel
                 </button>
                 <button
                   onClick={() => {
@@ -2955,7 +2955,7 @@ export const SyncDualPlayer: React.FC = () => {
                   }}
                   className="px-5 py-2 rounded-xl text-sm font-semibold text-white bg-amber-500 hover:bg-amber-600 shadow-sm shadow-amber-500/20 transition-all"
                 >
-                  Zapisz do raportu
+                  Save to report
                 </button>
               </div>
             </div>
@@ -2970,7 +2970,7 @@ export const SyncDualPlayer: React.FC = () => {
             <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
               <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
                 <DocumentTextIcon className="w-5 h-5 text-amber-500" />
-                Kreator Raportu PDF ({reportItems.length})
+                PDF Report Creator ({reportItems.length})
               </h2>
               <button 
                 onClick={() => setIsReportModalOpen(false)}
@@ -2984,7 +2984,7 @@ export const SyncDualPlayer: React.FC = () => {
               {reportItems.length === 0 ? (
                 <div className="text-center py-12">
                   <CameraIcon className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                  <p className="text-gray-500 font-medium">Brak dodanych zrzutów do raportu.</p>
+                  <p className="text-gray-500 font-medium">No screenshots added to report.</p>
                   <p className="text-sm text-gray-400 mt-1">Użyj ikony aparatu na pasku narzędzi podczas pracy.</p>
                 </div>
               ) : (
@@ -3008,7 +3008,7 @@ export const SyncDualPlayer: React.FC = () => {
                       <button
                         onClick={() => setReportItems(reportItems.filter(i => i.id !== item.id))}
                         className="opacity-0 group-hover:opacity-100 absolute top-4 right-4 text-red-400 hover:text-red-600 transition-all"
-                        title="Usuń z raportu"
+                        title="Remove from report"
                       >
                         <XMarkIcon className="w-5 h-5" />
                       </button>
@@ -3024,7 +3024,7 @@ export const SyncDualPlayer: React.FC = () => {
                 disabled={reportItems.length === 0}
                 className="text-sm font-medium text-red-500 hover:text-red-600 disabled:opacity-50 disabled:hover:text-red-500"
               >
-                Wyczyść raport
+                Clear report
               </button>
               
               <button
@@ -3035,7 +3035,7 @@ export const SyncDualPlayer: React.FC = () => {
                 disabled={reportItems.length === 0}
                 className="px-6 py-2 rounded-xl text-sm font-semibold text-white bg-green-500 hover:bg-green-600 shadow-sm shadow-green-500/20 transition-all disabled:opacity-50 disabled:hover:bg-green-500"
               >
-                Generuj Plik PDF
+                Generate PDF Report
               </button>
             </div>
           </div>
