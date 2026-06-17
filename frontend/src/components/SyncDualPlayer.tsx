@@ -147,6 +147,39 @@ export const SyncDualPlayer: React.FC = () => {
   const [isPsQaAnalyzing, setIsPsQaAnalyzing] = useState(false);
   const [psQaMetadata, setPsQaMetadata] = useState<{country: string, rating: string, bing: string, bong: string} | null>(null);
 
+  // ── Copydeck State ───────────────────────────────────────────────────
+  const [copydeckData, setCopydeckData] = useState<any>(null);
+  const [isUploadingCopydeck, setIsUploadingCopydeck] = useState(false);
+  const copydeckInputRef = useRef<HTMLInputElement>(null);
+
+  const handleCopydeckUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    setIsUploadingCopydeck(true);
+    const formData = new FormData();
+    formData.append("file", file);
+    
+    try {
+      const res = await fetch("http://localhost:8003/api/v1/copydeck/parse", {
+        method: "POST",
+        body: formData,
+      });
+      const json = await res.json();
+      if (json.success) {
+        setCopydeckData(json);
+      } else {
+        alert("Błąd parsowania Excela: " + json.error);
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Błąd połączenia z serwerem.");
+    } finally {
+      setIsUploadingCopydeck(false);
+      if (copydeckInputRef.current) copydeckInputRef.current.value = "";
+    }
+  };
+
   const parseFilenameMetadata = (filename: string) => {
     const parts = filename.split('_');
     let country = "Unknown";
@@ -2325,23 +2358,30 @@ export const SyncDualPlayer: React.FC = () => {
           </p>
         </div>
 
-        {/* ── Single Player Mode Toggle ── */}
-        <div className="flex items-center gap-2 flex-shrink-0 mr-4">
+        {/* ── Player Mode Toggle Switch ── */}
+        <div className="flex items-center gap-3 flex-shrink-0 mr-4 bg-gray-50 px-3 py-1.5 rounded-xl border border-gray-200 shadow-sm">
+          <span className={`text-sm font-semibold transition-colors cursor-pointer ${!isSinglePlayerMode ? 'text-gray-900' : 'text-gray-400'}`} onClick={() => { setIsSinglePlayerMode(false); }}>Dual</span>
+          
           <button
             onClick={() => {
               const newMode = !isSinglePlayerMode;
               setIsSinglePlayerMode(newMode);
               if (newMode && diffMode) deactivateDiffMode();
             }}
-            title={isSinglePlayerMode ? "Switch to dual players" : "Switch to single player"}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold shadow-sm transition-all ${
-              isSinglePlayerMode
-                ? "bg-purple-600 hover:bg-purple-700 text-white shadow-purple-600/20"
-                : "bg-gray-100 hover:bg-gray-200 text-gray-700"
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 ${
+              isSinglePlayerMode ? 'bg-purple-600' : 'bg-gray-300'
             }`}
+            title="Toggle player mode"
           >
-            {isSinglePlayerMode ? "Single Mode" : "Dual Mode"}
+            <span className="sr-only">Toggle player mode</span>
+            <span
+              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                isSinglePlayerMode ? 'translate-x-6' : 'translate-x-1'
+              }`}
+            />
           </button>
+          
+          <span className={`text-sm font-semibold transition-colors cursor-pointer ${isSinglePlayerMode ? 'text-purple-600' : 'text-gray-400'}`} onClick={() => { setIsSinglePlayerMode(true); if (diffMode) deactivateDiffMode(); }}>Single</span>
         </div>
 
         {/* ── Diff Mode Toolbar ── */}
@@ -2375,6 +2415,28 @@ export const SyncDualPlayer: React.FC = () => {
               {isPsQaAnalyzing && <span className="w-2 h-2 rounded-full bg-white animate-pulse" />}
             </button>
           )}
+
+          {/* Copydeck Upload */}
+          <div className="relative">
+            <input
+              type="file"
+              accept=".xlsx,.xls"
+              className="hidden"
+              ref={copydeckInputRef}
+              onChange={handleCopydeckUpload}
+            />
+            <button
+              onClick={() => copydeckInputRef.current?.click()}
+              disabled={isUploadingCopydeck}
+              title="Upload Copydeck Excel"
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold shadow-sm transition-all disabled:opacity-100 disabled:bg-gray-200 disabled:text-gray-400 disabled:shadow-none disabled:cursor-not-allowed ${
+                copydeckData ? 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-600/20' : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'
+              }`}
+            >
+              <DocumentTextIcon className="w-4 h-4" />
+              {isUploadingCopydeck ? "Parsing..." : copydeckData ? "Copydeck Ready" : "Upload Copydeck"}
+            </button>
+          </div>
           
           {isSinglePlayerMode && (
             <button
@@ -2532,6 +2594,29 @@ export const SyncDualPlayer: React.FC = () => {
                 </span>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Copydeck Results Panel ── */}
+      {copydeckData && (
+        <div className="mb-6 bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+          <div className="px-5 py-3 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-indigo-50">
+            <span className="text-sm font-bold text-indigo-900 flex items-center gap-2">
+              <span className="bg-indigo-600 text-white text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider">Excel Parser</span>
+              Copydeck Loaded Successfully
+            </span>
+            <span className="text-xs font-mono text-indigo-700 bg-white px-3 py-1 rounded-md border border-indigo-200">
+              Languages: {copydeckData.languages.length}
+            </span>
+          </div>
+          
+          <div className="p-5 flex gap-2 flex-wrap">
+            {copydeckData.languages.map((lang: string, idx: number) => (
+              <span key={idx} className="px-3 py-1 bg-gray-100 text-gray-700 text-xs font-semibold rounded-full border border-gray-200">
+                {lang}
+              </span>
+            ))}
           </div>
         </div>
       )}
