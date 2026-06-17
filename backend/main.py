@@ -12,6 +12,12 @@ import shutil
 import asyncio
 from pathlib import Path
 import imageio_ffmpeg
+import cv2
+import numpy as np
+import base64
+from pydantic import BaseModel
+from typing import List, Optional
+
 app = FastAPI(title="Sync DualPlayer API")
 
 app.add_middleware(
@@ -201,6 +207,56 @@ async def delete_file(file_id: int):
     del files_db[file_id]
     
     return {"status": "ok", "detail": "Files deleted successfully"}
+
+
+class AnalyzeFrameRequest(BaseModel):
+    image_base64: str
+    country_code: str
+
+def match_template(image_np, template_path, threshold=0.7):
+    if not os.path.exists(template_path):
+        return False
+    template = cv2.imread(template_path, cv2.IMREAD_COLOR)
+    if template is None:
+        return False
+    # Resize template if it's larger than image
+    if template.shape[0] > image_np.shape[0] or template.shape[1] > image_np.shape[1]:
+        return False
+    res = cv2.matchTemplate(image_np, template, cv2.TM_CCOEFF_NORMED)
+    loc = np.where(res >= threshold)
+    if len(loc[0]) > 0:
+        return True
+    return False
+
+@app.post("/api/v1/analyze-elements")
+async def analyze_elements(req: AnalyzeFrameRequest):
+    try:
+        # Decode base64 image
+        img_data = base64.b64decode(req.image_base64.split(',')[1] if ',' in req.image_base64 else req.image_base64)
+        nparr = np.frombuffer(img_data, np.uint8)
+        img_np = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        
+        # Determine expected templates based on country code
+        # Mock logic based on Plan
+        rating_path = 'backend/templates/ratings/esrb_teen.png'
+        if 'UK' in req.country_code or 'PL' in req.country_code:
+            rating_path = 'backend/templates/ratings/pegi_18.png'
+            
+        bing_path = 'backend/templates/bings/ps_logo.png'
+        
+        bong_path = 'backend/templates/bongs/standard.png'
+        if 'FR' in req.country_code:
+            bong_path = 'backend/templates/bongs/french.png'
+            
+        has_rating = match_template(img_np, rating_path)
+        has_bing = match_template(img_np, bing_path)
+        has_bong = match_template(img_np, bong_path)
+        
+        return {"success": True, "rating": has_rating, "bing": has_bing, "bong": has_bong}
+    except Exception as e:
+        print(e)
+        return {"success": False, "error": str(e)}
+
 
 # --- Static Frontend Serving for Standalone App ---
 frontend_dist = Path(__file__).parent.parent / "frontend_dist"

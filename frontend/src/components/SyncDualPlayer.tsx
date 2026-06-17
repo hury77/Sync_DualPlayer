@@ -141,6 +141,110 @@ export const SyncDualPlayer: React.FC = () => {
   const [isSinglePlayerMode, setIsSinglePlayerMode] = useState(false);
 
   
+
+  // ── Playstation QA State ─────────────────────────────────────────────
+  const [psQaResults, setPsQaResults] = useState<{rating: boolean, bing: boolean, bong: boolean} | null>(null);
+  const [isPsQaAnalyzing, setIsPsQaAnalyzing] = useState(false);
+  const [psQaMetadata, setPsQaMetadata] = useState<{country: string, rating: string, bing: string, bong: string} | null>(null);
+
+  const parseFilenameMetadata = (filename: string) => {
+    const parts = filename.split('_');
+    let country = "Unknown";
+    let rating = "Unknown";
+    let bing = "PS Logo";
+    let bong = "Standard";
+    
+    if (parts.length > 1) {
+      country = parts[1];
+      if (country.includes("FR") || country.includes("CA") || country.includes("US")) {
+        rating = "ESRB Teen";
+      } else {
+        rating = "PEGI 18";
+      }
+      if (country.includes("FR")) {
+        bong = "French";
+      }
+    }
+    return { country, rating, bing, bong };
+  };
+
+  const runPlaystationQA = async () => {
+    if (!acceptanceFile || !acceptanceVideoRef.current) return;
+    setIsPsQaAnalyzing(true);
+    setPsQaResults(null);
+    
+    const meta = parseFilenameMetadata(acceptanceFile.name);
+    setPsQaMetadata(meta);
+    
+    try {
+      const video = acceptanceVideoRef.current;
+      const W = Math.min(video.videoWidth || 1280, 1280);
+      const H = Math.min(video.videoHeight || 720, 720);
+      
+      const tmpCanvas = document.createElement("canvas");
+      tmpCanvas.width = W;
+      tmpCanvas.height = H;
+      const tmpCtx = tmpCanvas.getContext("2d");
+      if (!tmpCtx) {
+          setIsPsQaAnalyzing(false);
+          return;
+      }
+      
+      const extractFrame = async (time: number): Promise<string> => {
+        return new Promise((resolve) => {
+          const onSeeked = () => {
+            tmpCtx.drawImage(video, 0, 0, W, H);
+            const dataUrl = tmpCanvas.toDataURL("image/jpeg", 0.8);
+            video.removeEventListener('seeked', onSeeked);
+            resolve(dataUrl);
+          };
+          video.addEventListener('seeked', onSeeked);
+          video.currentTime = time;
+        });
+      };
+      
+      const originalTime = video.currentTime;
+      const wasPlaying = !video.paused;
+      if (wasPlaying) video.pause();
+      
+      const frame1 = await extractFrame(1);
+      const frame2 = await extractFrame(Math.max(0, video.duration - 1));
+      const frame3 = await extractFrame(originalTime);
+      
+      video.currentTime = originalTime;
+      // if (wasPlaying) video.play(); // Usually safer not to auto resume
+      
+      const analyzeFrame = async (base64: string) => {
+        try {
+          const res = await fetch("http://localhost:8003/api/v1/analyze-elements", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ image_base64: base64, country_code: meta.country })
+          });
+          return await res.json();
+        } catch (e) {
+          console.error(e);
+          return { rating: false, bing: false, bong: false };
+        }
+      };
+      
+      const res1 = await analyzeFrame(frame1);
+      const res2 = await analyzeFrame(frame2);
+      const res3 = await analyzeFrame(frame3);
+      
+      setPsQaResults({
+        rating: res1.rating || res2.rating || res3.rating,
+        bing: res1.bing || res2.bing || res3.bing,
+        bong: res1.bong || res2.bong || res3.bong
+      });
+      
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsPsQaAnalyzing(false);
+    }
+  };
+
   // ── QA Technical Analysis State ─────────────────────────────────────────────
   const [isQaMode, setIsQaMode] = useState(false);
   const [qaDefects, setQaDefects] = useState<{ time: number; type: "black" | "freeze" | "skip" }[]>([]);
@@ -2258,6 +2362,20 @@ export const SyncDualPlayer: React.FC = () => {
             )}
           </button>
 
+
+          {isSinglePlayerMode && (
+            <button
+              onClick={runPlaystationQA}
+              disabled={!acceptanceFile || isPsQaAnalyzing}
+              title="Automated PS Element Check"
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold shadow-sm transition-all disabled:opacity-100 disabled:bg-gray-200 disabled:text-gray-400 disabled:shadow-none disabled:cursor-not-allowed bg-green-600 hover:bg-green-700 text-white shadow-green-600/20`}
+            >
+              <EyeIcon className="w-4 h-4" />
+              {isPsQaAnalyzing ? "Scanning..." : "PS Auto-Check"}
+              {isPsQaAnalyzing && <span className="w-2 h-2 rounded-full bg-white animate-pulse" />}
+            </button>
+          )}
+          
           {isSinglePlayerMode && (
             <button
               onClick={() => isQaMode ? deactivateQaMode() : activateQaMode()}
@@ -2367,6 +2485,54 @@ export const SyncDualPlayer: React.FC = () => {
         <div className="mb-6 px-5 py-3 bg-green-50 border border-green-200 rounded-2xl text-sm text-green-700 flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
           Analiza w toku — brak wykrytych różnic.
+        </div>
+      )}
+
+
+      {/* ── Playstation QA Results Panel ── */}
+      {isSinglePlayerMode && psQaMetadata && (
+        <div className="mb-6 bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+          <div className="px-5 py-3 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-slate-50">
+            <span className="text-sm font-bold text-slate-800 flex items-center gap-2">
+              <span className="bg-blue-600 text-white text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider">PS Audit</span>
+              Metadata Extracted
+            </span>
+            <span className="text-xs font-mono text-slate-500 bg-white px-3 py-1 rounded-md border border-slate-200">
+              Target: {psQaMetadata.country}
+            </span>
+          </div>
+          
+          <div className="p-5 grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className={`p-4 rounded-xl border flex flex-col items-center justify-center text-center ${psQaResults ? (psQaResults.bing ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200') : 'bg-gray-50 border-gray-100'}`}>
+              <span className="text-xs text-gray-500 uppercase tracking-wider mb-1 font-semibold">BING</span>
+              <span className="text-sm font-medium text-gray-900">{psQaMetadata.bing}</span>
+              {psQaResults && (
+                <span className={`mt-2 px-3 py-1 rounded-full text-xs font-bold ${psQaResults.bing ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                  {psQaResults.bing ? "✅ FOUND" : "❌ MISSING"}
+                </span>
+              )}
+            </div>
+            
+            <div className={`p-4 rounded-xl border flex flex-col items-center justify-center text-center ${psQaResults ? (psQaResults.rating ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200') : 'bg-gray-50 border-gray-100'}`}>
+              <span className="text-xs text-gray-500 uppercase tracking-wider mb-1 font-semibold">RATING</span>
+              <span className="text-sm font-medium text-gray-900">{psQaMetadata.rating}</span>
+              {psQaResults && (
+                <span className={`mt-2 px-3 py-1 rounded-full text-xs font-bold ${psQaResults.rating ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                  {psQaResults.rating ? "✅ FOUND" : "❌ MISSING"}
+                </span>
+              )}
+            </div>
+            
+            <div className={`p-4 rounded-xl border flex flex-col items-center justify-center text-center ${psQaResults ? (psQaResults.bong ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200') : 'bg-gray-50 border-gray-100'}`}>
+              <span className="text-xs text-gray-500 uppercase tracking-wider mb-1 font-semibold">BONG</span>
+              <span className="text-sm font-medium text-gray-900">{psQaMetadata.bong}</span>
+              {psQaResults && (
+                <span className={`mt-2 px-3 py-1 rounded-full text-xs font-bold ${psQaResults.bong ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                  {psQaResults.bong ? "✅ FOUND" : "❌ MISSING"}
+                </span>
+              )}
+            </div>
+          </div>
         </div>
       )}
 
