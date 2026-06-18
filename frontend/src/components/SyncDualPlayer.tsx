@@ -17,7 +17,7 @@ import {
   DocumentTextIcon,
 } from "@heroicons/react/24/outline";
 import Tesseract from "tesseract.js";
-import { diffWords } from "diff";
+import { diffWords, diffChars } from "diff";
 import { jsPDF } from "jspdf";
 import html2canvas from "html2canvas";
 
@@ -61,6 +61,50 @@ interface ReportItem {
   ocrBriefText?: string;
 }
 
+const LANGUAGE_TO_TESSERACT: Record<string, string> = {
+  "Arabic": "ara",
+  "Chinese (Simplified)": "chi_sim",
+  "Chinese (Traditional)": "chi_tra",
+  "Croatian": "hrv",
+  "Czech": "ces",
+  "Danish": "dan",
+  "Dutch": "nld",
+  "English": "eng",
+  "English (UK/ANZ/UAE/ASIA)": "eng",
+  "Finnish": "fin",
+  "French": "fra",
+  "French (Canada)": "fra",
+  "French (France)": "fra",
+  "German": "deu",
+  "German (Germany)": "deu",
+  "Greek": "ell",
+  "Hungarian": "hun",
+  "Italian": "ita",
+  "Japanese": "jpn",
+  "Korean": "kor",
+  "Norwegian": "nor",
+  "Polish": "pol",
+  "Portuguese": "por",
+  "Portuguese (Brazil)": "por",
+  "Romanian": "ron",
+  "Russian": "rus",
+  "Spanish": "spa",
+  "Spanish (Latin America)": "spa",
+  "Spanish (Spain)": "spa",
+  "Swedish": "swe",
+  "Turkish": "tur",
+};
+
+const normalizeTextForDiff = (text: string) => {
+  if (!text) return "";
+  return text
+    .replace(/\r/g, "") // Usuń carriage returns z Windows/Excel
+    .split("\n")
+    .map(line => line.trimEnd()) // Usuń białe znaki na końcu każdej linii
+    .join("\n")
+    .trim(); // Usuń białe znaki na początku i końcu całego tekstu
+};
+
 export const SyncDualPlayer: React.FC = () => {
   const [acceptanceFile, setAcceptanceFile] = useState<VideoFile | null>(null);
   const [emissionFile, setEmissionFile] = useState<VideoFile | null>(null);
@@ -91,7 +135,12 @@ export const SyncDualPlayer: React.FC = () => {
   const [ocrTextAcceptance, setOcrTextAcceptance] = useState("");
   const [ocrTextEmission, setOcrTextEmission] = useState("");
   const [ocrBriefText, setOcrBriefText] = useState("");
+  const [availableCopydeckLines, setAvailableCopydeckLines] = useState<string[]>([]);
   const [isOcrProcessing, setIsOcrProcessing] = useState(false);
+  const [ocrProgressMessage, setOcrProgressMessage] = useState("");
+  const [ocrContrast, setOcrContrast] = useState(80);
+  const [ocrPreviewAcceptance, setOcrPreviewAcceptance] = useState<string | null>(null);
+  const [ocrPreviewEmission, setOcrPreviewEmission] = useState<string | null>(null);
 
   // Report Builder State
   const [reportItems, setReportItems] = useState<ReportItem[]>([]);
@@ -149,6 +198,7 @@ export const SyncDualPlayer: React.FC = () => {
 
   // ── Copydeck State ───────────────────────────────────────────────────
   const [copydeckData, setCopydeckData] = useState<any>(null);
+  const [selectedCopydeckLanguage, setSelectedCopydeckLanguage] = useState<string>("");
   const [isUploadingCopydeck, setIsUploadingCopydeck] = useState(false);
   const copydeckInputRef = useRef<HTMLInputElement>(null);
 
@@ -1746,9 +1796,10 @@ export const SyncDualPlayer: React.FC = () => {
     }
   }, [isOcrActive]);
 
-  const extractTextFromVideo = async (video: HTMLVideoElement, box: {startX: number, startY: number, endX: number, endY: number}) => {
+  const generateOcrImage = useCallback((video: HTMLVideoElement, box: {startX: number, startY: number, endX: number, endY: number}): string | null => {
     const width = box.endX - box.startX;
     const height = box.endY - box.startY;
+    if (width <= 0 || height <= 0) return null;
     
     // Upscale by 3x to improve OCR accuracy for small or compressed video text
     const scale = 3;
@@ -1758,24 +1809,25 @@ export const SyncDualPlayer: React.FC = () => {
     canvas.width = width * scale + padding * 2;
     canvas.height = height * scale + padding * 2;
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
-    if (!ctx) return "";
+    if (!ctx) return null;
     
     // Fill background (white by default, black if inverted)
     ctx.fillStyle = ocrInvertColors ? "black" : "white";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     
-    // Disable smoothing to keep text edges sharp
+    // Wyłączone wygładzanie (najbliższy sąsiad) zachowuje maksymalny kontrast małych kropek 
+    // i linii przy skalowaniu, co o ironio daje Tesseractowi lepsze szanse na przeczytanie Ä/Ö.
     ctx.imageSmoothingEnabled = false;
     ctx.drawImage(video, box.startX, box.startY, width, height, padding, padding, width * scale, height * scale);
     
-    // Apply grayscale filter, contrast boost, and optional color inversion
+    // Apply grayscale filter, dynamic contrast boost, and optional color inversion
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const data = imageData.data;
     for (let i = 0; i < data.length; i += 4) {
       let avg = (data[i] + data[i + 1] + data[i + 2]) / 3;
       
-      // Slight contrast boost
-      avg = avg < 128 ? Math.max(0, avg - 20) : Math.min(255, avg + 20);
+      // Dynamic contrast boost based on slider
+      avg = avg < 128 ? Math.max(0, avg - ocrContrast) : Math.min(255, avg + ocrContrast);
       
       if (ocrInvertColors) {
         avg = 255 - avg;
@@ -1787,17 +1839,23 @@ export const SyncDualPlayer: React.FC = () => {
     }
     ctx.putImageData(imageData, 0, 0);
 
-    const dataUrl = canvas.toDataURL("image/png");
-    
-    try {
-      const activeLang = ocrLanguage === "custom" && ocrCustomLanguage.length > 0 ? ocrCustomLanguage : (ocrLanguage === "custom" ? "eng" : ocrLanguage);
-      const result = await Tesseract.recognize(dataUrl, activeLang);
-      return result.data.text.trim();
-    } catch (err) {
-      console.error("OCR error:", err);
-      return "Text extraction error.";
+    return canvas.toDataURL("image/png");
+  }, [ocrContrast, ocrInvertColors]);
+
+  // Live preview effect
+  useEffect(() => {
+    if (isOcrActive && ocrBoxAcceptance && acceptanceVideoRef.current && acceptanceVideoRef.current.readyState >= 2) {
+      setOcrPreviewAcceptance(generateOcrImage(acceptanceVideoRef.current, ocrBoxAcceptance));
+    } else {
+      setOcrPreviewAcceptance(null);
     }
-  };
+    
+    if (isOcrActive && ocrBoxEmission && emissionVideoRef.current && emissionVideoRef.current.readyState >= 2) {
+      setOcrPreviewEmission(generateOcrImage(emissionVideoRef.current, ocrBoxEmission));
+    } else {
+      setOcrPreviewEmission(null);
+    }
+  }, [isOcrActive, ocrBoxAcceptance, ocrBoxEmission, ocrContrast, ocrInvertColors, currentTime, generateOcrImage]);
 
   // Report Capture Logic
   const handleCaptureReport = async () => {
@@ -2126,19 +2184,33 @@ export const SyncDualPlayer: React.FC = () => {
 
   const handleRunOcr = async () => {
     setIsOcrProcessing(true);
-    let accText = "";
-    let emiText = "";
+    setOcrProgressMessage("");
+    try {
+      const activeLang = ocrLanguage === "custom" && ocrCustomLanguage.length > 0 ? ocrCustomLanguage : (ocrLanguage === "custom" ? "eng" : ocrLanguage);
 
-    if (ocrBoxAcceptance && acceptanceVideoRef.current && acceptanceVideoRef.current.readyState >= 2) {
-      accText = await extractTextFromVideo(acceptanceVideoRef.current, ocrBoxAcceptance);
-      setOcrTextAcceptance(accText);
+      if (ocrBoxAcceptance && ocrPreviewAcceptance) {
+        const result = await Tesseract.recognize(ocrPreviewAcceptance, activeLang, {
+          logger: m => {
+            if (m.status === "loading tesseract core") setOcrProgressMessage("Ładowanie silnika OCR...");
+            else if (m.status === "loading language traineddata") setOcrProgressMessage(`Pobieranie paczki języka: ${(m.progress * 100).toFixed(0)}%`);
+            else if (m.status === "initializing api") setOcrProgressMessage("Inicjalizacja API...");
+            else if (m.status === "recognizing text") setOcrProgressMessage(`Czytanie tekstu: ${(m.progress * 100).toFixed(0)}%`);
+          }
+        });
+        setOcrTextAcceptance(result.data.text.trim());
+      }
+      
+      if (!isSinglePlayerMode && ocrBoxEmission && ocrPreviewEmission) {
+        const result = await Tesseract.recognize(ocrPreviewEmission, activeLang);
+        setOcrTextEmission(result.data.text.trim());
+      }
+    } catch (error) {
+      console.error("Critical OCR error:", error);
+      alert("Wystąpił błąd podczas analizy obrazu. Spróbuj powtórzyć operację lub zmienić parametry.");
+    } finally {
+      setIsOcrProcessing(false);
+      setOcrProgressMessage("");
     }
-    if (!isSinglePlayerMode && ocrBoxEmission && emissionVideoRef.current && emissionVideoRef.current.readyState >= 2) {
-      emiText = await extractTextFromVideo(emissionVideoRef.current, ocrBoxEmission);
-      setOcrTextEmission(emiText);
-    }
-
-    setIsOcrProcessing(false);
   };
 
   const renderRulerOverlay = (sourceVideo: "acceptance" | "emission", containerRef: React.RefObject<HTMLVideoElement | null>) => {
@@ -2331,7 +2403,7 @@ export const SyncDualPlayer: React.FC = () => {
   };
 
   return (
-    <div className="max-w-7xl mx-auto px-6 py-6 pb-20">
+    <div className={`${isSinglePlayerMode ? 'max-w-7xl' : 'max-w-[100rem]'} mx-auto px-6 py-6 pb-20 transition-all duration-500`}>
       {/* Eyedropper Tooltip */}
       {isEyedropperActive && hoverColor && (
         <div 
@@ -2350,16 +2422,27 @@ export const SyncDualPlayer: React.FC = () => {
       )}
 
       {/* Title Header */}
-      <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-1">Sync Dual Player</h2>
-          <p className="text-gray-500 text-sm">
-            Drag and drop video files to play them side by side in full sync. Supports MP4, MOV and MXF formats.
+      <div className="mb-6 flex items-start gap-5">
+        <div className="flex-shrink-0 w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-600 via-purple-600 to-fuchsia-500 shadow-lg flex items-center justify-center transform hover:scale-105 transition-all duration-300 ring-4 ring-white">
+          <svg className="w-7 h-7 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+            <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+          </svg>
+        </div>
+        <div className="flex flex-col justify-center pt-0.5">
+          <h2 className="text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-gray-900 to-gray-600 mb-1 tracking-tight flex items-baseline">
+            VITO <span className="text-gray-400 font-medium text-2xl tracking-normal ml-3">Video Inspector Tool Observer</span>
+          </h2>
+          <p className="text-gray-500 text-sm md:text-base font-medium max-w-4xl leading-relaxed">
+            Automatyczny audyt wideo: weryfikacja wizualna, parsowanie Excela (Copydeck) i porównywanie tekstu w locie (OCR).
           </p>
         </div>
+      </div>
 
+      {/* Top Toolbar */}
+      <div className="mb-6 flex flex-wrap items-center gap-3 p-2 bg-white rounded-2xl border border-gray-100 shadow-sm">
         {/* ── Player Mode Toggle Switch ── */}
-        <div className="flex items-center gap-3 flex-shrink-0 mr-4 bg-gray-50 px-3 py-1.5 rounded-xl border border-gray-200 shadow-sm">
+        <div className="flex items-center gap-3 flex-shrink-0 bg-gray-50 px-3 py-1.5 rounded-xl border border-gray-200 shadow-sm">
           <span className={`text-sm font-semibold transition-colors cursor-pointer ${!isSinglePlayerMode ? 'text-gray-900' : 'text-gray-400'}`} onClick={() => { setIsSinglePlayerMode(false); }}>Dual</span>
           
           <button
@@ -2385,38 +2468,37 @@ export const SyncDualPlayer: React.FC = () => {
         </div>
 
         {/* ── Diff Mode Toolbar ── */}
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <button
-            onClick={() => diffMode ? deactivateDiffMode() : activateDiffMode()}
-            disabled={(!acceptanceFile || !emissionFile) || isSinglePlayerMode}
-            title={diffMode ? "Disable Diff Overlay" : "Enable Diff Overlay"}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold shadow-sm transition-all disabled:opacity-100 disabled:bg-gray-200 disabled:text-gray-400 disabled:shadow-none disabled:cursor-not-allowed ${
-              diffMode
-                ? "bg-red-600 hover:bg-red-700 text-white shadow-red-600/20"
-                : "bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-600/20"
-            }`}
-          >
-            {diffMode ? <EyeSlashIcon className="w-4 h-4" /> : <EyeIcon className="w-4 h-4" />}{diffMode ? "Diff ON" : "Diff OFF"}
-            {isAnalyzing && diffMode && (
-              <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
-            )}
-          </button>
-
-
-          {isSinglePlayerMode && (
-            <button
-              onClick={runPlaystationQA}
-              disabled={!acceptanceFile || isPsQaAnalyzing}
-              title="Automated PS Element Check"
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold shadow-sm transition-all disabled:opacity-100 disabled:bg-gray-200 disabled:text-gray-400 disabled:shadow-none disabled:cursor-not-allowed bg-green-600 hover:bg-green-700 text-white shadow-green-600/20`}
-            >
-              <EyeIcon className="w-4 h-4" />
-              {isPsQaAnalyzing ? "Scanning..." : "PS Auto-Check"}
-              {isPsQaAnalyzing && <span className="w-2 h-2 rounded-full bg-white animate-pulse" />}
-            </button>
+        <button
+          onClick={() => diffMode ? deactivateDiffMode() : activateDiffMode()}
+          disabled={(!acceptanceFile || !emissionFile) || isSinglePlayerMode}
+          title={diffMode ? "Disable Diff Overlay" : "Enable Diff Overlay"}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold shadow-sm transition-all disabled:opacity-100 disabled:bg-gray-100 disabled:text-gray-400 disabled:shadow-none disabled:cursor-not-allowed ${
+            diffMode
+              ? "bg-red-600 hover:bg-red-700 text-white shadow-red-600/20"
+              : "bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-600/20"
+          }`}
+        >
+          {diffMode ? <EyeSlashIcon className="w-4 h-4" /> : <EyeIcon className="w-4 h-4" />}{diffMode ? "Diff ON" : "Diff OFF"}
+          {isAnalyzing && diffMode && (
+            <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
           )}
+        </button>
 
-          {/* Copydeck Upload */}
+        {isSinglePlayerMode && (
+          <button
+            onClick={runPlaystationQA}
+            disabled={!acceptanceFile || isPsQaAnalyzing}
+            title="Automated PS Element Check"
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold shadow-sm transition-all disabled:opacity-100 disabled:bg-gray-100 disabled:text-gray-400 disabled:shadow-none disabled:cursor-not-allowed bg-green-600 hover:bg-green-700 text-white shadow-green-600/20`}
+          >
+            <EyeIcon className="w-4 h-4" />
+            {isPsQaAnalyzing ? "Scanning..." : "PS Auto-Check"}
+            {isPsQaAnalyzing && <span className="w-2 h-2 rounded-full bg-white animate-pulse" />}
+          </button>
+        )}
+
+        {/* Copydeck Upload */}
+        {isSinglePlayerMode && (
           <div className="relative">
             <input
               type="file"
@@ -2429,7 +2511,7 @@ export const SyncDualPlayer: React.FC = () => {
               onClick={() => copydeckInputRef.current?.click()}
               disabled={isUploadingCopydeck}
               title="Upload Copydeck Excel"
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold shadow-sm transition-all disabled:opacity-100 disabled:bg-gray-200 disabled:text-gray-400 disabled:shadow-none disabled:cursor-not-allowed ${
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold shadow-sm transition-all disabled:opacity-100 disabled:bg-gray-100 disabled:text-gray-400 disabled:shadow-none disabled:cursor-not-allowed ${
                 copydeckData ? 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-600/20' : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'
               }`}
             >
@@ -2437,34 +2519,51 @@ export const SyncDualPlayer: React.FC = () => {
               {isUploadingCopydeck ? "Parsing..." : copydeckData ? "Copydeck Ready" : "Upload Copydeck"}
             </button>
           </div>
-          
-          {isSinglePlayerMode && (
-            <button
-              onClick={() => isQaMode ? deactivateQaMode() : activateQaMode()}
-              disabled={!acceptanceFile}
-              title="QA Technical Analysis"
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold shadow-sm transition-all disabled:opacity-100 disabled:bg-gray-200 disabled:text-gray-400 disabled:shadow-none disabled:cursor-not-allowed ${
-                isQaMode
-                  ? "bg-amber-600 hover:bg-amber-700 text-white shadow-amber-600/20"
-                  : "bg-blue-600 hover:bg-blue-700 text-white shadow-blue-600/20"
-              }`}
-            >
-              <EyeIcon className="w-4 h-4" />
-              {isQaMode ? "QA ON" : "QA Analysis"}
-              {isQaMode && <span className="w-2 h-2 rounded-full bg-white animate-pulse" />}
-            </button>
-          )}
-
+        )}
+        
+        {isSinglePlayerMode && (
           <button
-            onClick={captureScreenshot}
-            disabled={!acceptanceFile || (!isSinglePlayerMode && !emissionFile) || screenshotSaving}
-            title="Save screenshot to Downloads"
-            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold shadow-sm bg-gray-800 hover:bg-gray-900 text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+            onClick={() => isQaMode ? deactivateQaMode() : activateQaMode()}
+            disabled={!acceptanceFile}
+            title="QA Technical Analysis"
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold shadow-sm transition-all disabled:opacity-100 disabled:bg-gray-100 disabled:text-gray-400 disabled:shadow-none disabled:cursor-not-allowed ${
+              isQaMode
+                ? "bg-amber-600 hover:bg-amber-700 text-white shadow-amber-600/20"
+                : "bg-blue-600 hover:bg-blue-700 text-white shadow-blue-600/20"
+            }`}
           >
-            <CameraIcon className="w-4 h-4" />
-            {screenshotSaving ? "Saving…" : "Screenshot"}
+            <EyeIcon className="w-4 h-4" />
+            {isQaMode ? "QA ON" : "QA Analysis"}
+            {isQaMode && <span className="w-2 h-2 rounded-full bg-white animate-pulse" />}
           </button>
-        </div>
+        )}
+
+        {/* OCR Top Toolbar Toggle */}
+        {isSinglePlayerMode && (
+          <button
+            onClick={() => setIsOcrActive(!isOcrActive)}
+            disabled={!acceptanceFile}
+            title="Compare Copy (OCR)"
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold shadow-sm transition-all disabled:opacity-100 disabled:bg-gray-100 disabled:text-gray-400 disabled:shadow-none disabled:cursor-not-allowed ${
+              isOcrActive
+                ? "bg-fuchsia-600 hover:bg-fuchsia-700 text-white shadow-fuchsia-600/20"
+                : "bg-blue-600 hover:bg-blue-700 text-white shadow-blue-600/20"
+            }`}
+          >
+            <DocumentTextIcon className="w-4 h-4" />
+            {isOcrActive ? "OCR ON" : "Compare OCR"}
+          </button>
+        )}
+
+        <button
+          onClick={captureScreenshot}
+          disabled={!acceptanceFile || (!isSinglePlayerMode && !emissionFile) || screenshotSaving}
+          title="Save screenshot to Downloads"
+          className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold shadow-sm bg-gray-800 hover:bg-gray-900 text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed ml-auto"
+        >
+          <CameraIcon className="w-4 h-4" />
+          {screenshotSaving ? "Saving…" : "Screenshot"}
+        </button>
       </div>
 
       {/* ── Wipe / Diff Overlay Panel (visible only in diff mode) ── */}
@@ -2684,7 +2783,7 @@ export const SyncDualPlayer: React.FC = () => {
               </h3>
               {acceptanceFile && (
                 <p className="text-xs text-gray-500 flex items-center mt-0.5" title={acceptanceFile.name}>
-                  <span className="truncate max-w-[200px]">{acceptanceFile.name}</span>
+                  <span className="break-all">{acceptanceFile.name}</span>
                   <span className="flex-shrink-0 ml-1.5 font-medium whitespace-nowrap">
                     • {formatFileSize(acceptanceFile.size)}
                     {accDimensions && ` • ${accDimensions.width}x${accDimensions.height}`}
@@ -2840,7 +2939,7 @@ export const SyncDualPlayer: React.FC = () => {
               <h3 className="font-semibold text-red-800">Emission</h3>
               {emissionFile && (
                 <p className="text-xs text-gray-500 flex items-center mt-0.5" title={emissionFile.name}>
-                  <span className="truncate max-w-[200px]">{emissionFile.name}</span>
+                  <span className="break-all">{emissionFile.name}</span>
                   <span className="flex-shrink-0 ml-1.5 font-medium whitespace-nowrap">
                     • {formatFileSize(emissionFile.size)}
                     {emDimensions && ` • ${emDimensions.width}x${emDimensions.height}`}
@@ -3209,7 +3308,21 @@ export const SyncDualPlayer: React.FC = () => {
             <h3 className="font-semibold text-purple-900 flex items-center gap-2">
               <DocumentTextIcon className="w-5 h-5" /> Compare Copy (OCR)
             </h3>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-purple-700 font-semibold">Czułość kontrastu:</span>
+                <input 
+                  type="range" 
+                  min="0" max="127" 
+                  value={ocrContrast} 
+                  onChange={(e) => setOcrContrast(Number(e.target.value))}
+                  className="w-24 accent-purple-600"
+                  title={`Kontrast (0 = oryginalny, 127 = binarny): ${ocrContrast}`}
+                />
+              </div>
+
+              <div className="w-px h-4 bg-purple-200 mx-1"></div>
+
               <label className="flex items-center gap-1.5 text-xs text-purple-800 cursor-pointer hover:bg-purple-100 px-2 py-1 rounded transition-colors">
                 <input 
                   type="checkbox" 
@@ -3230,19 +3343,13 @@ export const SyncDualPlayer: React.FC = () => {
                   className="text-xs border-purple-200 rounded px-2 py-1 bg-white focus:ring-purple-500 text-purple-900 cursor-pointer"
                 >
                   <option value="eng+pol">Auto (Angielski + Polski)</option>
-                  <option value="eng">Angielski (eng)</option>
-                  <option value="pol">Polski (pol)</option>
-                  <option value="deu">Niemiecki (deu)</option>
-                  <option value="fra">Francuski (fra)</option>
-                  <option value="spa">Hiszpański (spa)</option>
-                  <option value="ita">Włoski (ita)</option>
-                  <option value="bul">Bułgarski - Cyrylica (bul)</option>
-                  <option value="ces">Czeski (ces)</option>
-                  <option value="slk">Słowacki (slk)</option>
-                  <option value="ron">Rumuński (ron)</option>
-                  <option value="hun">Węgierski (hun)</option>
-                  <option value="nld">Holenderski (nld)</option>
-                  <option value="custom">Inny (Wpisz ręcznie)...</option>
+                  {Object.entries(LANGUAGE_TO_TESSERACT)
+                    .map(([name, code]) => ({ name, code }))
+                    .filter((val, index, self) => index === self.findIndex((t) => t.name === val.name))
+                    .map(({ name, code }) => (
+                    <option key={name} value={code}>{name}</option>
+                  ))}
+                  <option value="custom">Inny (Wpisz kod ISO)...</option>
                 </select>
                 {ocrLanguage === "custom" && (
                   <input
@@ -3259,10 +3366,78 @@ export const SyncDualPlayer: React.FC = () => {
             </div>
           </div>
           
+          {/* Live Camera Feed Previews */}
+          {(ocrPreviewAcceptance || ocrPreviewEmission) && (
+            <div className="bg-gray-900 border-b border-gray-800 p-6 flex flex-col md:flex-row gap-6">
+              {ocrPreviewAcceptance && (
+                <div className="flex-1 flex flex-col gap-2">
+                  <div className="flex justify-between items-center px-1">
+                    <span className="text-[10px] uppercase font-bold text-green-400 tracking-wider flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
+                      LIVE OCR FEED (ACCEPTANCE)
+                    </span>
+                  </div>
+                  <div className="w-full flex items-center justify-center bg-black rounded-xl border border-gray-700 shadow-inner overflow-hidden" style={{ minHeight: "150px", maxHeight: "350px" }}>
+                    <img src={ocrPreviewAcceptance} alt="Preview Acceptance" className="max-w-full max-h-full object-contain" />
+                  </div>
+                </div>
+              )}
+              {ocrPreviewEmission && (
+                <div className="flex-1 flex flex-col gap-2">
+                  <div className="flex justify-between items-center px-1">
+                    <span className="text-[10px] uppercase font-bold text-red-400 tracking-wider flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
+                      LIVE OCR FEED (EMISSION)
+                    </span>
+                  </div>
+                  <div className="w-full flex items-center justify-center bg-black rounded-xl border border-gray-700 shadow-inner overflow-hidden" style={{ minHeight: "150px", maxHeight: "350px" }}>
+                    <img src={ocrPreviewEmission} alt="Preview Emission" className="max-w-full max-h-full object-contain" />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-6">
             {/* Brief Input */}
             <div className="flex flex-col gap-2">
-              <label className="text-sm font-semibold text-gray-700">Skopiowany Brief (wklej tutaj)</label>
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-semibold text-gray-700">Skopiowany Brief (wklej tutaj)</label>
+                {copydeckData && copydeckData.languages && copydeckData.languages.length > 0 && (
+                  <select
+                    className="text-xs border-indigo-200 rounded px-2 py-1 bg-indigo-50 focus:ring-indigo-500 text-indigo-900 cursor-pointer"
+                    value={selectedCopydeckLanguage}
+                    onChange={(e) => {
+                      const lang = e.target.value;
+                      setSelectedCopydeckLanguage(lang);
+                      if (lang && copydeckData.data[lang]) {
+                        // Extract all target values for this language
+                        const translations = Object.values(copydeckData.data[lang]) as string[];
+                        setAvailableCopydeckLines(translations);
+                        
+                        if (translations.length > 0) {
+                          setOcrBriefText(translations[0]); // domyślnie pierwszy wiersz
+                        } else {
+                          setOcrBriefText("");
+                        }
+                        
+                        // Auto-sync OCR language with copydeck language if we have a match
+                        if (LANGUAGE_TO_TESSERACT[lang]) {
+                          setOcrLanguage(LANGUAGE_TO_TESSERACT[lang]);
+                        }
+                      } else {
+                        setAvailableCopydeckLines([]);
+                        setOcrBriefText("");
+                      }
+                    }}
+                  >
+                    <option value="">-- Wypełnij z Copydecku --</option>
+                    {copydeckData.languages.map((l: string) => (
+                      <option key={l} value={l}>{l}</option>
+                    ))}
+                  </select>
+                )}
+              </div>
               <textarea 
                 value={ocrBriefText}
                 onChange={(e) => setOcrBriefText(e.target.value)}
@@ -3281,6 +3456,7 @@ export const SyncDualPlayer: React.FC = () => {
                   <span className="text-[10px] text-gray-400 font-mono">ZAZNACZ OBSZAR MYSZKĄ</span>
                 )}
               </div>
+              
               <textarea 
                 value={ocrTextAcceptance}
                 readOnly
@@ -3299,6 +3475,7 @@ export const SyncDualPlayer: React.FC = () => {
                   <span className="text-[10px] text-gray-400 font-mono">ZAZNACZ OBSZAR MYSZKĄ</span>
                 )}
               </div>
+              
               <textarea 
                 value={ocrTextEmission}
                 readOnly
@@ -3308,6 +3485,29 @@ export const SyncDualPlayer: React.FC = () => {
             </div>
           </div>
           
+          {/* Selectable Copydeck Lines - Full Width */}
+          {availableCopydeckLines.length > 0 && (
+            <div className="px-6 pb-2 -mt-2">
+              <span className="text-[10px] uppercase font-bold text-gray-500 mb-2 block">Wybierz wiersz z pliku Excel (Copydeck):</span>
+              <div className="flex gap-3 overflow-x-auto pb-4 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent">
+                {availableCopydeckLines.map((line, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => setOcrBriefText(line)}
+                    className={`flex-shrink-0 w-52 text-left text-sm px-4 py-3 rounded-xl border transition-all ${
+                      ocrBriefText === line
+                        ? "bg-indigo-50 border-indigo-400 text-indigo-900 shadow-md ring-2 ring-indigo-200/50"
+                        : "bg-white border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-gray-300 hover:shadow-sm"
+                    }`}
+                    title={line}
+                  >
+                    <span className="line-clamp-4 leading-relaxed">{line}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="px-6 pb-6 pt-2 flex flex-col gap-6 border-t border-gray-100 mt-2">
             <div className="flex items-center justify-between pt-4">
               <button
@@ -3320,7 +3520,7 @@ export const SyncDualPlayer: React.FC = () => {
                 ) : (
                   <DocumentTextIcon className="w-5 h-5" />
                 )}
-                {isOcrProcessing ? "Zczytywanie i analiza..." : "Zczytaj teksty i porównaj"}
+                {isOcrProcessing ? (ocrProgressMessage || "Zczytywanie i analiza...") : "Zczytaj teksty i porównaj"}
               </button>
             </div>
             
@@ -3338,7 +3538,7 @@ export const SyncDualPlayer: React.FC = () => {
                   <div className="flex flex-col gap-1">
                     <span className="text-xs font-semibold text-gray-500">Brief <span className="mx-1 text-[10px] text-gray-300">vs</span> Acceptance</span>
                     <div className="p-3 bg-white border border-gray-200 rounded font-mono text-sm leading-relaxed whitespace-pre-wrap break-words">
-                      {diffWords(ocrBriefText, ocrTextAcceptance).map((part, i) => (
+                      {diffChars(normalizeTextForDiff(ocrBriefText), normalizeTextForDiff(ocrTextAcceptance)).map((part, i) => (
                         <span key={i} className={part.added ? "bg-green-200 text-green-900 px-0.5 rounded" : part.removed ? "bg-red-200 text-red-900 line-through px-0.5 rounded" : ""}>
                           {part.value}
                         </span>
@@ -3351,7 +3551,7 @@ export const SyncDualPlayer: React.FC = () => {
                   <div className="flex flex-col gap-1 mt-2">
                     <span className="text-xs font-semibold text-gray-500">Brief <span className="mx-1 text-[10px] text-gray-300">vs</span> Emission</span>
                     <div className="p-3 bg-white border border-gray-200 rounded font-mono text-sm leading-relaxed whitespace-pre-wrap break-words">
-                      {diffWords(ocrBriefText, ocrTextEmission).map((part, i) => (
+                      {diffChars(normalizeTextForDiff(ocrBriefText), normalizeTextForDiff(ocrTextEmission)).map((part, i) => (
                         <span key={i} className={part.added ? "bg-green-200 text-green-900 px-0.5 rounded" : part.removed ? "bg-red-200 text-red-900 line-through px-0.5 rounded" : ""}>
                           {part.value}
                         </span>
@@ -3364,7 +3564,7 @@ export const SyncDualPlayer: React.FC = () => {
                   <div className="flex flex-col gap-1 mt-2">
                     <span className="text-xs font-semibold text-gray-500">Acceptance <span className="mx-1 text-[10px] text-gray-300">vs</span> Emission</span>
                     <div className="p-3 bg-white border border-gray-200 rounded font-mono text-sm leading-relaxed whitespace-pre-wrap break-words">
-                      {diffWords(ocrTextAcceptance, ocrTextEmission).map((part, i) => (
+                      {diffChars(normalizeTextForDiff(ocrTextAcceptance), normalizeTextForDiff(ocrTextEmission)).map((part, i) => (
                         <span key={i} className={part.added ? "bg-green-200 text-green-900 px-0.5 rounded" : part.removed ? "bg-red-200 text-red-900 line-through px-0.5 rounded" : ""}>
                           {part.value}
                         </span>
