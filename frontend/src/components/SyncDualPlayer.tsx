@@ -942,12 +942,13 @@ export const SyncDualPlayer: React.FC = () => {
 
   // ── Keyboard Controls ───────────────────────────────────────────────────────
   useEffect(() => {
-    const handleKeyDown = (e) => {
+    const handleKeyDown = (e: KeyboardEvent) => {
       // Ignore if typing in an input or textarea
+      const target = e.target as HTMLElement | null;
       if (
-        e.target instanceof HTMLInputElement ||
-        e.target instanceof HTMLTextAreaElement ||
-        e.target.isContentEditable
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target?.isContentEditable
       ) {
         return;
       }
@@ -1103,7 +1104,7 @@ export const SyncDualPlayer: React.FC = () => {
       if (isBlack || isFreeze || isSkip) {
         if (!qaLoggedTimesRef.current.has(roundedTime)) {
           qaLoggedTimesRef.current.add(roundedTime);
-          let type = isBlack ? "black" : isFreeze ? "freeze" : "skip";
+          let type: "black" | "freeze" | "skip" = isBlack ? "black" : isFreeze ? "freeze" : "skip";
           setQaDefects(prev => {
             // Avoid adding same type very close to each other
             if (prev.length > 0) {

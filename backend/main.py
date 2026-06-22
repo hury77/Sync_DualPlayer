@@ -238,17 +238,20 @@ async def analyze_elements(req: AnalyzeFrameRequest):
         nparr = np.frombuffer(img_data, np.uint8)
         img_np = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         
+        # Ustalenie absolutnej ścieżki do folderu backend/templates
+        base_dir = Path(__file__).resolve().parent
+        
         # Determine expected templates based on country code
         # Mock logic based on Plan
-        rating_path = 'backend/templates/ratings/esrb_teen.png'
+        rating_path = str(base_dir / 'templates' / 'ratings' / 'esrb_teen.png')
         if 'UK' in req.country_code or 'PL' in req.country_code:
-            rating_path = 'backend/templates/ratings/pegi_18.png'
+            rating_path = str(base_dir / 'templates' / 'ratings' / 'pegi_18.png')
             
-        bing_path = 'backend/templates/bings/ps_logo.png'
+        bing_path = str(base_dir / 'templates' / 'bings' / 'ps_logo.png')
         
-        bong_path = 'backend/templates/bongs/standard.png'
+        bong_path = str(base_dir / 'templates' / 'bongs' / 'standard.png')
         if 'FR' in req.country_code:
-            bong_path = 'backend/templates/bongs/french.png'
+            bong_path = str(base_dir / 'templates' / 'bongs' / 'french.png')
             
         has_rating = match_template(img_np, rating_path)
         has_bing = match_template(img_np, bing_path)

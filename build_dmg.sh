@@ -1,10 +1,11 @@
 #!/bin/bash
 
+APP_VERSION="2.0"
 APP_NAME="Sync_DualPlayer"
 APP_DIR="${APP_NAME}.app"
 SRC_DIR="${APP_DIR}/Contents/MacOS/src"
 
-echo "🚀 Budowanie najnowszej wersji aplikacji (v2.0)..."
+echo "🚀 Budowanie najnowszej wersji aplikacji (v${APP_VERSION})..."
 
 # 1. Zbudowanie frontendu
 echo "📦 Kompilacja Frontendu..."
@@ -26,13 +27,19 @@ cp backend/requirements.txt "${SRC_DIR}/backend/"
 if [ -f "backend/ffmpeg" ]; then
     cp backend/ffmpeg "${SRC_DIR}/backend/"
 fi
+if [ -d "backend/templates" ]; then
+    cp -r backend/templates "${SRC_DIR}/backend/"
+fi
+
+# Zapisujemy wersję do pliku
+echo "${APP_VERSION}" > "${SRC_DIR}/backend/version.txt"
 
 # 4. Nadanie uprawnień
 chmod +x "${APP_DIR}/Contents/MacOS/Sync_DualPlayer"
 
 # 5. Tworzenie pliku DMG
 echo "💿 Generowanie pliku DMG..."
-DMG_NAME="${APP_NAME}_v2.0.dmg"
+DMG_NAME="${APP_NAME}_v${APP_VERSION}.dmg"
 rm -f "$DMG_NAME"
 hdiutil create -volname "${APP_NAME}" -srcfolder "${APP_DIR}" -ov -format UDZO "$DMG_NAME"
 
