@@ -2,6 +2,16 @@
 
 Docelowa wizja to pełna automatyzacja sprawdzania zgodności plików wideo z dostarczonymi wytycznymi i tabelami Excel. Proces wdrażania podzielony został na 3 logiczne etapy.
 
+---
+## 🎯 Aktualny Punkt Kontrolny (Zapis Stanu Gry)
+**Co ukończyliśmy:** 
+Zakończyliśmy przygotowywanie pełnej aplikacji Desktopowej (Standalone `.app` dla systemu macOS spakowanej w `.dmg`). 
+Aplikacja ma zintegrowany mechanizm **Auto-Update Checker**, który wymusza na użytkownikach posiadanie najnowszej wersji poprzez sprawdzanie pliku `latest_version.txt` zmagazynowanego na dysku sieciowym VITO (`/Volumes/PL-EGplusww/Administrative and corporate files/DEPARTMENTS/QA/VITO`). Jeśli lokalna wersja odstaje od najnowszej na serwerze, system używa AppleScript (`System Events`), aby wyświetlić natywne okienko informacyjne macOS i zablokować uruchomienie przestarzałej wersji, co zostało skutecznie przetestowane!
+
+**Co robimy dalej (Czekamy na zielone światło od testera):**
+Kolejnym dużym wyzwaniem będzie rozpoczęcie prac nad zarządzaniem bazą danych zasobów do Computer Vision (zgodnie z Etapem 1) lub bazą danych do składowania raportów (Etap 3). Oczekujemy na szczegóły z zespołu QA, by zaplanować właściwą architekturę.
+---
+
 ## Etap 1: Detekcja Stałych Elementów Graficznych (Obecnie realizowany)
 Celem jest potwierdzenie, czy plik posiada odpowiednie elementy stałe wymagane dla danego regionu.
 - [ ] Zbudowanie parsera nazw plików (wyciąganie `Language Code`, `Dimension`, `Duration`).
