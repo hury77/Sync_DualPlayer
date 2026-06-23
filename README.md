@@ -66,6 +66,10 @@ npm run build
 ```
 Zbudowane pliki wylądują w folderze `dist`.
 
+## 📦 Aplikacja Desktopowa (macOS) i Aktualizacje
+Aplikację można spakować do formatu samodzielnego `.app` wewnątrz obrazu `.dmg` używając przygotowanego skryptu `build_dmg.sh`. Aplikacja została wyposażona w mechanizm **Auto-Update Checker**, który zabezpiecza przed używaniem zdezaktualizowanych wersji w środowisku testowym. Wymaga on umieszczenia pliku `latest_version.txt` w odpowiednim folderze sieciowym (obecnie: `/Volumes/PL-EGplusww/Administrative and corporate files/DEPARTMENTS/QA/VITO`). Jeśli po uruchomieniu lokalna wersja nie odpowiada sieciowej, użytkownik zobaczy okienko ostrzegawcze z możliwością pominięcia.
+Szczegóły budowy wersji desktopowej i systemu aktualizacji znajdziesz w pliku `DESKTOP_BUILD_GUIDE.md`.
+
 ## 🛠 Technologie
 - **Frontend:** React 18, Vite, TypeScript, Tailwind CSS v4, Web Workers (porównywanie na klatkach Canvas)
 - **Backend:** Python 3, FastAPI, Uvicorn, FFmpeg

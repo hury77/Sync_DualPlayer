@@ -61,7 +61,22 @@ Ważne atrybuty:
 - `CFBundleIdentifier` (np. `com.cradle.mojaaplikacja`)
 
 ### 3.3 Dystrybucja
-Gotowy katalog `.app` kompresujemy do `.zip` przed wysłaniem użytkownikowi, co zabezpiecza strukturę katalogów i prawa wykonywania przed uszkodzeniem.
+Gotowy katalog `.app` kompresujemy do `.zip` przed wysłaniem użytkownikowi, co zabezpiecza strukturę katalogów i prawa wykonywania przed uszkodzeniem. Ewentualnie budujemy obraz `.dmg` używając narzędzia `hdiutil`.
+
+## Krok 4: Mechanizm Automatycznych Aktualizacji (Auto-Update Checker)
+Aplikacja została wyposażona w inteligentny skrypt sprawdzający dostępność nowych wersji z ustalonego dysku sieciowego korporacji. Działa to w całości wewnątrz skryptu `launch.command` bez uciążliwego backendu.
+
+**Zasada działania:**
+1. Podczas budowania przez `build_dmg.sh`, do folderu aplikacji dodawany jest plik `version.txt` (np. z tekstem `2.0`).
+2. Przy starcie, aplikacja z cicha podłącza się do dysku: `/Volumes/PL-EGplusww/Administrative and corporate files/DEPARTMENTS/QA/VITO`
+3. Odszukuje tam plik `latest_version.txt`. Jeśli wersja na serwerze jest nowsza niż ta lokalna (np. `2.1` > `2.0`), aplikacja blokuje start.
+4. Z pomocą `AppleScript` wywołuje w `bashu` powiadomienie z systemowym oknem `System Events`:
+   ```bash
+   osascript -e 'tell application "System Events" to display dialog "Dostępna jest nowa wersja..."'
+   ```
+5. Użytkownik widzi natywne powiadomienie na ekranie i może albo zamknąć okno by skontaktować się z administratorem, albo opcjonalnie kontynuować przestarzałą sesję w trybie awaryjnym.
+
+Ważne jest użycie `tell application "System Events"`, co omija ograniczenia bezpieczeństwa macOS podczas uruchamiania poprzez tzw. "dwuklik" z Findera (przez `launchd`).
 
 ---
 
