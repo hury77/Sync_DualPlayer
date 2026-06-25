@@ -211,24 +211,58 @@ async def delete_file(file_id: int):
     return {"status": "ok", "detail": "Files deleted successfully"}
 
 
+from parsers import parse_filename, get_requirements_from_brief, ParserError
+
 class AnalyzeFrameRequest(BaseModel):
     image_base64: str
-    country_code: str
+    filename: str
+    # Opcjonalnie możemy przyjmować kod kraju z frontendu, ale priorytet ma nazwa pliku
+    country_code: Optional[str] = None
 
-def match_template(image_np, template_path, threshold=0.7):
+def match_template(image_np, template_path, threshold=0.60):
     if not os.path.exists(template_path):
         return False
-    template = cv2.imread(template_path, cv2.IMREAD_COLOR)
+    template = cv2.imread(template_path, cv2.IMREAD_UNCHANGED)
     if template is None:
         return False
-    # Resize template if it's larger than image
-    if template.shape[0] > image_np.shape[0] or template.shape[1] > image_np.shape[1]:
-        return False
-    res = cv2.matchTemplate(image_np, template, cv2.TM_CCOEFF_NORMED)
-    loc = np.where(res >= threshold)
-    if len(loc[0]) > 0:
+        
+    if len(template.shape) == 3 and template.shape[2] == 4:
+        template = cv2.cvtColor(template, cv2.COLOR_BGRA2BGR)
+        
+    # Downsample by 50% to make matchTemplate 16x faster
+    small_image = cv2.resize(image_np, (0, 0), fx=0.5, fy=0.5)
+    
+    best_max_val = 0
+    # Fast multi-scale: only 3 scales (0.8, 1.0, 1.2)
+    for scale in [0.8, 1.0, 1.2]: 
+        # Calculate new template size (accounting for 50% downsample of the image)
+        width = int(template.shape[1] * scale * 0.5)
+        height = int(template.shape[0] * scale * 0.5)
+        
+        if width < 20 or height < 20 or width > small_image.shape[1] or height > small_image.shape[0]:
+            continue
+            
+        resized_template = cv2.resize(template, (width, height), interpolation=cv2.INTER_AREA)
+        res = cv2.matchTemplate(small_image, resized_template, cv2.TM_CCOEFF_NORMED)
+        _, max_val, _, _ = cv2.minMaxLoc(res)
+        
+        if max_val > best_max_val:
+            best_max_val = max_val
+            
+    if best_max_val >= threshold:
         return True
     return False
+
+@app.post("/api/v1/brief/upload")
+async def upload_brief(file: UploadFile = File(...)):
+    try:
+        brief_path = UPLOAD_DIR / "current_brief.xlsx"
+        contents = await file.read()
+        with open(brief_path, "wb") as f:
+            f.write(contents)
+        return {"success": True, "message": "Brief uploaded successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/v1/analyze-elements")
 async def analyze_elements(req: AnalyzeFrameRequest):
@@ -238,28 +272,125 @@ async def analyze_elements(req: AnalyzeFrameRequest):
         nparr = np.frombuffer(img_data, np.uint8)
         img_np = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         
-        # Ustalenie absolutnej ścieżki do folderu backend/templates
-        base_dir = Path(__file__).resolve().parent
-        
-        # Determine expected templates based on country code
-        # Mock logic based on Plan
-        rating_path = str(base_dir / 'templates' / 'ratings' / 'esrb_teen.png')
-        if 'UK' in req.country_code or 'PL' in req.country_code:
-            rating_path = str(base_dir / 'templates' / 'ratings' / 'pegi_18.png')
+        # 1. Parsowanie nazwy pliku
+        try:
+            metadata = parse_filename(req.filename)
+            lang_code = metadata['language']
+            dimension = metadata['dimension']
+        except ParserError as e:
+            # Rzucamy błąd (Guardrail)
+            raise HTTPException(status_code=400, detail=str(e))
             
-        bing_path = str(base_dir / 'templates' / 'bings' / 'ps_logo.png')
-        
-        bong_path = str(base_dir / 'templates' / 'bongs' / 'standard.png')
-        if 'FR' in req.country_code:
-            bong_path = str(base_dir / 'templates' / 'bongs' / 'french.png')
+        # Zabezpieczenie: jeśli wymiar to np. 1080x1080 to mapujemy to na '1x1' by dopasować do struktury folderów BONG
+        # Prosta logika mapująca (można rozbudować)
+        dim_map = {"1080x1080": "1x1", "1920x1080": "16x9", "1080x1920": "9x16", "4K": "16x9"}
+        bong_dim = dim_map.get(dimension, "16x9")
             
-        has_rating = match_template(img_np, rating_path)
+        # 2. Parsowanie Briefu by poznać wymagania
+        brief_path = str(UPLOAD_DIR / "current_brief.xlsx")
+        if not os.path.exists(brief_path):
+            raise HTTPException(status_code=400, detail="Błąd krytyczny QA: Brak wgranego Briefu! Wgraj najpierw plik LOC Brief (.xlsx).")
+            
+        try:
+            # W briefie zakładki mają nazwy np. PL-PL, a z pliku wyciągamy np. PL (lub SE-SV)
+            # Próbujemy znaleźć dopasowanie w Briefie. Dla testów jeśli kod ma 2 litery, dodajemy resztę np. PL -> PL-PL.
+            sheet_name = lang_code if "-" in lang_code else f"{lang_code}-{lang_code}"
+            reqs = get_requirements_from_brief(brief_path, sheet_name)
+        except ParserError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+            
+        # 3. Budowanie ścieżek do bazy na VITO
+        cv_assets_dir = Path("/Volumes/PL-EGplusww/Administrative and corporate files/DEPARTMENTS/QA/VITO/CV_Assets")
+        if not cv_assets_dir.exists():
+            # Awaryjny fallback na lokalny dysk, jeśli dysk sieciowy nie jest podłączony
+            cv_assets_dir = Path("/Users/hubert.rycaj/Documents/PS_elements/CV_Assets")
+            
+        rating_org = reqs.get("RATING", "PEGI")
+        rating_age = reqs.get("AGE", "18")
+        bong_type = reqs.get("BONG", "Standard")
+        bing_type = reqs.get("BING", "Standard")
+        
+        # Rating path logic (e.g. RATINGS/PEGI/PEGI_18_cropped.png)
+        # To wymaga żeby rating z Excela zgadzał się z nazwami plików. 
+        # Na razie szukamy pliku, który w nazwie ma wiek (np. 18, 12, T, M).
+        rating_folder = cv_assets_dir / "RATINGS" / rating_org
+        rating_path = ""
+        if rating_folder.exists():
+            for f in rating_folder.glob("*_cropped.png"):
+                if str(rating_age) in f.name:
+                    rating_path = str(f)
+                    break
+                    
+        # Bong path logic
+        bong_path_cropped = cv_assets_dir / "BONG" / bong_dim / lang_code / "shot1_cropped.png"
+        bong_path_std = cv_assets_dir / "BONG" / bong_dim / lang_code / "shot1.png"
+        bong_shot2_cropped = cv_assets_dir / "BONG" / bong_dim / lang_code / "shot2_cropped.png"
+        
+        paths_to_check = []
+        if bong_path_cropped.exists():
+            paths_to_check.append(str(bong_path_cropped))
+        elif bong_path_std.exists():
+            paths_to_check.append(str(bong_path_std))
+        else:
+            univ_cropped = cv_assets_dir / "BONG" / bong_dim / "Universal" / "shot1_cropped.png"
+            univ_std = cv_assets_dir / "BONG" / bong_dim / "Universal" / "shot1.png"
+            paths_to_check.append(str(univ_cropped if univ_cropped.exists() else univ_std))
+            
+        if bong_shot2_cropped.exists():
+            paths_to_check.append(str(bong_shot2_cropped))
+        else:
+            univ_shot2 = cv_assets_dir / "BONG" / bong_dim / "Universal" / "shot2_cropped.png"
+            if univ_shot2.exists():
+                paths_to_check.append(str(univ_shot2))
+            
+        # Bing path logic
+        bing_cropped = cv_assets_dir / "BING" / bong_dim / "Universal" / "shot1_cropped.png"
+        bing_std = cv_assets_dir / "BING" / bong_dim / "Universal" / "shot1.png"
+        bing_path = str(bing_cropped if bing_cropped.exists() else bing_std)
+            
+        # 4. Wykonanie Computer Vision (Template Matching)
+        
+        # Rating - sprawdzamy wszystkie pasujące szablony i jeśli jakikolwiek pasuje, to sukces
+        has_rating = False
+        if rating_folder.exists():
+            for f in rating_folder.glob("*_cropped.png"):
+                if str(rating_age) in f.name:
+                    if match_template(img_np, str(f)):
+                        has_rating = True
+                        break
+                        
         has_bing = match_template(img_np, bing_path)
-        has_bong = match_template(img_np, bong_path)
         
-        return {"success": True, "rating": has_rating, "bing": has_bing, "bong": has_bong}
+        has_bong = False
+        for bp in paths_to_check:
+            if match_template(img_np, bp):
+                has_bong = True
+                break
+        
+        # Debug: Save frames if something is missing
+        if not (has_rating and has_bing and has_bong):
+            import time
+            ts = int(time.time())
+            cv2.imwrite(f"/tmp/debug_frame_{ts}.png", img_np)
+            with open("/tmp/vito_error.log", "a") as f:
+                f.write(f"Zapisano klatkę do /tmp/debug_frame_{ts}.png\n")
+            print(f"DEBUG: Zapisano klatkę do /tmp/debug_frame_{ts}.png")
+        
+        return {
+            "success": True, 
+            "metadata_used": {"language": lang_code, "dimension": dimension, "expected_requirements": reqs},
+            "rating": has_rating, 
+            "bing": has_bing, 
+            "bong": has_bong
+        }
+    except HTTPException:
+        raise
     except Exception as e:
-        print(e)
+        import traceback
+        err_str = traceback.format_exc()
+        with open("/tmp/vito_error.log", "a") as f:
+            f.write(err_str + "\n")
+        print(err_str)
         return {"success": False, "error": str(e)}
 
 

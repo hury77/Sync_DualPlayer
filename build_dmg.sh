@@ -1,6 +1,6 @@
 #!/bin/bash
 
-APP_VERSION="2.0"
+APP_VERSION="2.2"
 APP_NAME="Sync_DualPlayer"
 APP_DIR="${APP_NAME}.app"
 SRC_DIR="${APP_DIR}/Contents/MacOS/src"
@@ -16,6 +16,7 @@ cd ..
 # 2. Skopiowanie frontendu do .app
 echo "📂 Aktualizacja plików frontendu w .app..."
 rm -rf "${SRC_DIR}/frontend_dist"
+mkdir -p "${SRC_DIR}"
 cp -r frontend/dist "${SRC_DIR}/frontend_dist"
 
 # 3. Skopiowanie backendu do .app (z pominięciem zbędnych folderów)
@@ -23,6 +24,7 @@ echo "📂 Aktualizacja skryptów backendu w .app..."
 rm -rf "${SRC_DIR}/backend"
 mkdir -p "${SRC_DIR}/backend"
 cp backend/main.py "${SRC_DIR}/backend/"
+cp backend/parsers.py "${SRC_DIR}/backend/"
 cp backend/requirements.txt "${SRC_DIR}/backend/"
 if [ -f "backend/ffmpeg" ]; then
     cp backend/ffmpeg "${SRC_DIR}/backend/"

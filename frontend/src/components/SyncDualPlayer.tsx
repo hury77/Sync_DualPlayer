@@ -105,6 +105,15 @@ const normalizeTextForDiff = (text: string) => {
     .trim(); // Usuń białe znaki na początku i końcu całego tekstu
 };
 
+const getBoundedDimensions = (vw: number, vh: number, maxW = 1280, maxH = 1280) => {
+  if (!vw || !vh) return { w: maxW, h: maxH };
+  let scale = 1;
+  if (vw > maxW || vh > maxH) {
+    scale = Math.min(maxW / vw, maxH / vh);
+  }
+  return { w: Math.round(vw * scale), h: Math.round(vh * scale) };
+};
+
 export const SyncDualPlayer: React.FC = () => {
   const [acceptanceFile, setAcceptanceFile] = useState<VideoFile | null>(null);
   const [emissionFile, setEmissionFile] = useState<VideoFile | null>(null);
@@ -192,7 +201,7 @@ export const SyncDualPlayer: React.FC = () => {
   
 
   // ── Playstation QA State ─────────────────────────────────────────────
-  const [psQaResults, setPsQaResults] = useState<{rating: boolean, bing: boolean, bong: boolean} | null>(null);
+  const [psQaResults, setPsQaResults] = useState<{rating: boolean, bing: boolean, bong: boolean, scanTime?: string} | null>(null);
   const [isPsQaAnalyzing, setIsPsQaAnalyzing] = useState(false);
   const [psQaMetadata, setPsQaMetadata] = useState<{country: string, rating: string, bing: string, bong: string} | null>(null);
 
@@ -201,6 +210,41 @@ export const SyncDualPlayer: React.FC = () => {
   const [selectedCopydeckLanguage, setSelectedCopydeckLanguage] = useState<string>("");
   const [isUploadingCopydeck, setIsUploadingCopydeck] = useState(false);
   const copydeckInputRef = useRef<HTMLInputElement>(null);
+
+  // ── LOC Brief State ──────────────────────────────────────────────────
+  const [isBriefUploaded, setIsBriefUploaded] = useState(false);
+  const [isUploadingBrief, setIsUploadingBrief] = useState(false);
+  const briefInputRef = useRef<HTMLInputElement>(null);
+
+  const handleBriefUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    setIsUploadingBrief(true);
+    const formData = new FormData();
+    formData.append("file", file);
+    
+    try {
+      // W środowisku DEV, hardcode jak w Copydeck, w PROD powinno być zmienną środowiskową
+      const res = await fetch("http://localhost:8003/api/v1/brief/upload", {
+        method: "POST",
+        body: formData,
+      });
+      const json = await res.json();
+      if (json.success) {
+        setIsBriefUploaded(true);
+        // Opcjonalnie mały alert lub toast, my polegamy na zmianie tekstu na przycisku
+      } else {
+        alert("Błąd wgrywania Briefu: " + json.error);
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Błąd połączenia z serwerem podczas wgrywania Briefu.");
+    } finally {
+      setIsUploadingBrief(false);
+      if (briefInputRef.current) briefInputRef.current.value = "";
+    }
+  };
 
   const handleCopydeckUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -261,8 +305,7 @@ export const SyncDualPlayer: React.FC = () => {
     
     try {
       const video = acceptanceVideoRef.current;
-      const W = Math.min(video.videoWidth || 1280, 1280);
-      const H = Math.min(video.videoHeight || 720, 720);
+      const { w: W, h: H } = getBoundedDimensions(video.videoWidth, video.videoHeight);
       
       const tmpCanvas = document.createElement("canvas");
       tmpCanvas.width = W;
@@ -290,19 +333,23 @@ export const SyncDualPlayer: React.FC = () => {
       const wasPlaying = !video.paused;
       if (wasPlaying) video.pause();
       
-      const frame1 = await extractFrame(1);
-      const frame2 = await extractFrame(Math.max(0, video.duration - 1));
-      const frame3 = await extractFrame(originalTime);
+      const dur = video.duration;
+      const frameTimes = [
+        0.5, 1.0, 1.5, 2.0, 2.5, 3.0, // BING
+        Math.max(0, dur - 1.9), Math.max(0, dur - 1.7), Math.max(0, dur - 1.5), 
+        Math.max(0, dur - 1.3), Math.max(0, dur - 1.1), Math.max(0, dur - 0.9), 
+        Math.max(0, dur - 0.7), Math.max(0, dur - 0.5) // Covers both BONG shot1 and shot2
+      ];
       
-      video.currentTime = originalTime;
-      // if (wasPlaying) video.play(); // Usually safer not to auto resume
+      const results = [];
+      let finalMetaUsed = null;
       
       const analyzeFrame = async (base64: string) => {
         try {
           const res = await fetch("http://localhost:8003/api/v1/analyze-elements", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ image_base64: base64, country_code: meta.country })
+            body: JSON.stringify({ image_base64: base64, country_code: meta.country, filename: acceptanceFile.name })
           });
           return await res.json();
         } catch (e) {
@@ -310,16 +357,44 @@ export const SyncDualPlayer: React.FC = () => {
           return { rating: false, bing: false, bong: false };
         }
       };
+
+      const tStart = performance.now();
       
-      const res1 = await analyzeFrame(frame1);
-      const res2 = await analyzeFrame(frame2);
-      const res3 = await analyzeFrame(frame3);
+      for (const t of frameTimes) {
+        if (t >= 0 && t <= video.duration) {
+          const frame = await extractFrame(t);
+          const res = await analyzeFrame(frame);
+          results.push(res);
+          if (res.metadata_used) {
+            finalMetaUsed = res.metadata_used;
+          }
+        }
+      }
+      
+      const tEnd = performance.now();
+      const scanTimeMs = tEnd - tStart;
+      const scanTimeStr = (scanTimeMs / 1000).toFixed(1) + "s";
+      
+      // Restore video position
+      video.currentTime = originalTime;
       
       setPsQaResults({
-        rating: res1.rating || res2.rating || res3.rating,
-        bing: res1.bing || res2.bing || res3.bing,
-        bong: res1.bong || res2.bong || res3.bong
+        rating: results.some(r => r.rating),
+        bing: results.some(r => r.bing),
+        bong: results.some(r => r.bong),
+        scanTime: scanTimeStr
       });
+      
+      // Update UI to reflect the actual requirements used by the backend from the LOC Brief
+      if (finalMetaUsed && finalMetaUsed.expected_requirements) {
+        const reqs = finalMetaUsed.expected_requirements;
+        setPsQaMetadata(prev => prev ? {
+          ...prev,
+          rating: reqs.RATING && reqs.AGE ? `${reqs.RATING} ${reqs.AGE}` : prev.rating,
+          bing: reqs.BING || prev.bing,
+          bong: reqs.BONG || prev.bong
+        } : null);
+      }
       
     } catch (err) {
       console.error(err);
@@ -995,8 +1070,7 @@ export const SyncDualPlayer: React.FC = () => {
     if (accVideo.readyState < 2 || emiVideo.readyState < 2) return;
 
     // Use the smaller of the two resolutions to avoid stretching
-    const W = Math.min(accVideo.videoWidth  || 1280, 1280);
-    const H = Math.min(accVideo.videoHeight || 720,  720);
+    const { w: W, h: H } = getBoundedDimensions(accVideo.videoWidth, accVideo.videoHeight);
     if (W === 0 || H === 0) return;
 
     canvas.width  = W;
@@ -1028,8 +1102,7 @@ export const SyncDualPlayer: React.FC = () => {
     if (!video || !qaWorkerRef.current) return;
     if (video.readyState < 2) return;
 
-    const W = Math.min(video.videoWidth || 1280, 1280);
-    const H = Math.min(video.videoHeight || 720, 720);
+    const { w: W, h: H } = getBoundedDimensions(video.videoWidth, video.videoHeight);
     if (W === 0 || H === 0) return;
 
     const tmpCanvas = document.createElement("canvas");
@@ -1152,8 +1225,9 @@ export const SyncDualPlayer: React.FC = () => {
     // in the DOM, so we must create it programmatically — otherwise the worker
     // result is discarded and no highlights are shown.
     const offscreen = document.createElement("canvas");
-    offscreen.width  = Math.min(acceptanceVideoRef.current.videoWidth  || 1280, 1280);
-    offscreen.height = Math.min(acceptanceVideoRef.current.videoHeight || 720,  720);
+    const { w: offW, h: offH } = getBoundedDimensions(acceptanceVideoRef.current.videoWidth, acceptanceVideoRef.current.videoHeight);
+    offscreen.width = offW;
+    offscreen.height = offH;
     overlayCanvasRef.current = offscreen;
 
     // Create Web Worker inline via Blob to avoid CRA webpack Worker loader issues
@@ -1326,9 +1400,44 @@ export const SyncDualPlayer: React.FC = () => {
 
       const wp = wipePositionRef.current;
 
+      const drawWithLetterbox = (context: CanvasRenderingContext2D, source: HTMLVideoElement | HTMLCanvasElement) => {
+        let srcW, srcH;
+        if ('videoWidth' in source) {
+          srcW = (source as HTMLVideoElement).videoWidth;
+          srcH = (source as HTMLVideoElement).videoHeight;
+        } else {
+          srcW = (source as HTMLCanvasElement).width;
+          srcH = (source as HTMLCanvasElement).height;
+        }
+        
+        if (!srcW || !srcH) return;
+        
+        const videoRatio = srcW / srcH;
+        const containerRatio = W / H;
+        
+        let drawW = W;
+        let drawH = H;
+        let offsetX = 0;
+        let offsetY = 0;
+        
+        if (containerRatio > videoRatio) {
+          // Pillarbox
+          drawH = H;
+          drawW = H * videoRatio;
+          offsetX = (W - drawW) / 2;
+        } else {
+          // Letterbox
+          drawW = W;
+          drawH = W / videoRatio;
+          offsetY = (H - drawH) / 2;
+        }
+        
+        context.drawImage(source, offsetX, offsetY, drawW, drawH);
+      };
+
       // 1. Draw emission full-width (right side / background)
       if (emiVideo.readyState >= 2) {
-        ctx.drawImage(emiVideo, 0, 0, W, H);
+        drawWithLetterbox(ctx, emiVideo);
       }
 
       // 2. Draw acceptance, clipped to the left portion (wipe position)
@@ -1337,7 +1446,7 @@ export const SyncDualPlayer: React.FC = () => {
         ctx.beginPath();
         ctx.rect(0, 0, Math.round(W * wp / 100), H);
         ctx.clip();
-        ctx.drawImage(accVideo, 0, 0, W, H);
+        drawWithLetterbox(ctx, accVideo);
         ctx.restore();
       }
 
@@ -1345,7 +1454,7 @@ export const SyncDualPlayer: React.FC = () => {
       if (overlayCanvas && overlayCanvas.width > 0) {
         ctx.globalAlpha = 0.72;
         ctx.globalCompositeOperation = "source-over";
-        ctx.drawImage(overlayCanvas, 0, 0, W, H);
+        drawWithLetterbox(ctx, overlayCanvas);
         ctx.globalAlpha = 1;
         ctx.globalCompositeOperation = "source-over";
       }
@@ -2431,8 +2540,8 @@ export const SyncDualPlayer: React.FC = () => {
           </svg>
         </div>
         <div className="flex flex-col justify-center pt-0.5">
-          <h2 className="text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-gray-900 to-gray-600 mb-1 tracking-tight flex items-baseline">
-            VITO <span className="text-gray-400 font-medium text-2xl tracking-normal ml-3">Video Inspector Tool Observer</span>
+          <h2 className="text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-gray-900 to-gray-600 mb-1 tracking-tight flex items-center">
+            VITO <span className="text-gray-400 font-medium text-2xl tracking-normal mx-3">Video Inspector Tool Observer</span><span className="text-xs text-purple-600 font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-purple-100/50 border border-purple-200 shadow-sm align-middle mt-1">v2.2</span>
           </h2>
           <p className="text-gray-500 text-sm md:text-base font-medium max-w-4xl leading-relaxed">
             Automatyczny audyt wideo: weryfikacja wizualna, parsowanie Excela (Copydeck) i porównywanie tekstu w locie (OCR).
@@ -2488,14 +2597,38 @@ export const SyncDualPlayer: React.FC = () => {
         {isSinglePlayerMode && (
           <button
             onClick={runPlaystationQA}
-            disabled={!acceptanceFile || isPsQaAnalyzing}
-            title="Automated PS Element Check"
+            disabled={!acceptanceFile || isPsQaAnalyzing || !isBriefUploaded}
+            title={!isBriefUploaded ? "Musisz najpierw wgrać LOC Brief!" : "Automated PS Element Check"}
             className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold shadow-sm transition-all disabled:opacity-100 disabled:bg-gray-100 disabled:text-gray-400 disabled:shadow-none disabled:cursor-not-allowed bg-green-600 hover:bg-green-700 text-white shadow-green-600/20`}
           >
             <EyeIcon className="w-4 h-4" />
             {isPsQaAnalyzing ? "Scanning..." : "PS Auto-Check"}
             {isPsQaAnalyzing && <span className="w-2 h-2 rounded-full bg-white animate-pulse" />}
           </button>
+        )}
+
+        {/* Brief Upload */}
+        {isSinglePlayerMode && (
+          <div className="relative">
+            <input
+              type="file"
+              accept=".xlsx,.xls"
+              className="hidden"
+              ref={briefInputRef}
+              onChange={handleBriefUpload}
+            />
+            <button
+              onClick={() => briefInputRef.current?.click()}
+              disabled={isUploadingBrief}
+              title="Wgraj LOC Brief (.xlsx)"
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold shadow-sm transition-all disabled:opacity-100 disabled:bg-gray-100 disabled:text-gray-400 disabled:shadow-none disabled:cursor-not-allowed ${
+                isBriefUploaded ? 'bg-cyan-600 hover:bg-cyan-700 text-white shadow-cyan-600/20' : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'
+              }`}
+            >
+              <DocumentTextIcon className="w-4 h-4" />
+              {isUploadingBrief ? "Wgrywanie..." : isBriefUploaded ? "Brief Wgrany" : "Upload LOC Brief"}
+            </button>
+          </div>
         )}
 
         {/* Copydeck Upload */}
@@ -2590,8 +2723,11 @@ export const SyncDualPlayer: React.FC = () => {
                NO extra <video> elements here → no ref conflicts → no freeze on exit. */}
           <div
             ref={wipeContainerRef}
-            className="relative w-full select-none"
-            style={{ background: "#000", aspectRatio: "16/9", cursor: "col-resize" }}
+            className="relative w-full select-none flex justify-center bg-black"
+            style={{ 
+              aspectRatio: "16/9",
+              cursor: "col-resize"
+            }}
             onMouseDown={handleWipeMouseDown}
           >
             <canvas
@@ -2658,6 +2794,11 @@ export const SyncDualPlayer: React.FC = () => {
             <span className="text-sm font-bold text-slate-800 flex items-center gap-2">
               <span className="bg-blue-600 text-white text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider">PS Audit</span>
               Metadata Extracted
+              {psQaResults?.scanTime && (
+                <span className="ml-2 text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full font-medium border border-slate-200">
+                  ⏱ {psQaResults.scanTime}
+                </span>
+              )}
             </span>
             <span className="text-xs font-mono text-slate-500 bg-white px-3 py-1 rounded-md border border-slate-200">
               Target: {psQaMetadata.country}
