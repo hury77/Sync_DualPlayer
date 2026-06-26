@@ -64,7 +64,7 @@ def get_requirements_from_brief(brief_path: str, language_code: str) -> dict:
         # Tworzymy mapowanie
         req = {}
         for col_idx, col_name in enumerate(headers):
-            if col_name in ['RATING', 'AGE', 'BING', 'BONG']:
+            if col_name in ['RATING', 'AGE', 'BING', 'BONG'] or 'PHNL' in col_name:
                 val = str(values.iloc[col_idx]).strip()
                 if val.lower() == 'nan': val = ""
                 req[col_name] = val

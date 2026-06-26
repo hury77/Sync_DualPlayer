@@ -201,7 +201,15 @@ export const SyncDualPlayer: React.FC = () => {
   
 
   // ── Playstation QA State ─────────────────────────────────────────────
-  const [psQaResults, setPsQaResults] = useState<{rating: boolean, bing: boolean, bong: boolean, scanTime?: string} | null>(null);
+  const [psQaResults, setPsQaResults] = useState<{
+    rating: string, 
+    bing: string, 
+    bong: string, 
+    expected_rating_b64?: string | null,
+    expected_bing_b64?: string | null,
+    expected_bong_b64?: string | null,
+    scanTime?: string
+  } | null>(null);
   const [isPsQaAnalyzing, setIsPsQaAnalyzing] = useState(false);
   const [psQaMetadata, setPsQaMetadata] = useState<{country: string, rating: string, bing: string, bong: string} | null>(null);
 
@@ -341,15 +349,14 @@ export const SyncDualPlayer: React.FC = () => {
         Math.max(0, dur - 0.7), Math.max(0, dur - 0.5) // Covers both BONG shot1 and shot2
       ];
       
-      const results = [];
       let finalMetaUsed = null;
       
-      const analyzeFrame = async (base64: string) => {
+      const analyzeFrame = async (base64: string, timestamp: number) => {
         try {
           const res = await fetch("http://localhost:8003/api/v1/analyze-elements", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ image_base64: base64, country_code: meta.country, filename: acceptanceFile.name })
+            body: JSON.stringify({ image_base64: base64, country_code: meta.country, filename: acceptanceFile.name, timestamp: timestamp })
           });
           return await res.json();
         } catch (e) {
@@ -360,16 +367,23 @@ export const SyncDualPlayer: React.FC = () => {
 
       const tStart = performance.now();
       
+      const resultsPromises = [];
+      
       for (const t of frameTimes) {
         if (t >= 0 && t <= video.duration) {
           const frame = await extractFrame(t);
-          const res = await analyzeFrame(frame);
-          results.push(res);
-          if (res.metadata_used) {
-            finalMetaUsed = res.metadata_used;
-          }
+          resultsPromises.push(
+            analyzeFrame(frame, t).then(res => {
+              if (res.metadata_used) {
+                finalMetaUsed = res.metadata_used;
+              }
+              return res;
+            })
+          );
         }
       }
+      
+      const results = await Promise.all(resultsPromises);
       
       const tEnd = performance.now();
       const scanTimeMs = tEnd - tStart;
@@ -378,10 +392,35 @@ export const SyncDualPlayer: React.FC = () => {
       // Restore video position
       video.currentTime = originalTime;
       
+      let finalRating = "MISSING";
+      let finalBing = "MISSING";
+      let finalBong = "MISSING";
+      let expRating: string | null = null;
+      let expBing: string | null = null;
+      let expBong: string | null = null;
+
+      for (const res of results) {
+         if (res.rating === "FOUND") finalRating = "FOUND";
+         else if (res.rating === "INCORRECT" && finalRating !== "FOUND") finalRating = "INCORRECT";
+
+         if (res.bing === "FOUND") finalBing = "FOUND";
+         else if (res.bing === "INCORRECT" && finalBing !== "FOUND") finalBing = "INCORRECT";
+
+         if (res.bong === "FOUND") finalBong = "FOUND";
+         else if (res.bong === "INCORRECT" && finalBong !== "FOUND") finalBong = "INCORRECT";
+
+         if (res.expected_rating_b64) expRating = res.expected_rating_b64;
+         if (res.expected_bing_b64) expBing = res.expected_bing_b64;
+         if (res.expected_bong_b64) expBong = res.expected_bong_b64;
+      }
+      
       setPsQaResults({
-        rating: results.some(r => r.rating),
-        bing: results.some(r => r.bing),
-        bong: results.some(r => r.bong),
+        rating: finalRating,
+        bing: finalBing,
+        bong: finalBong,
+        expected_rating_b64: expRating,
+        expected_bing_b64: expBing,
+        expected_bong_b64: expBong,
         scanTime: scanTimeStr
       });
       
@@ -2806,32 +2845,47 @@ export const SyncDualPlayer: React.FC = () => {
           </div>
           
           <div className="p-5 grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className={`p-4 rounded-xl border flex flex-col items-center justify-center text-center ${psQaResults ? (psQaResults.bing ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200') : 'bg-gray-50 border-gray-100'}`}>
-              <span className="text-xs text-gray-500 uppercase tracking-wider mb-1 font-semibold">BING</span>
+            <div className={`p-4 rounded-xl border flex flex-col items-center justify-center text-center ${psQaResults ? (psQaResults.bing === 'FOUND' ? 'bg-green-50 border-green-200' : psQaResults.bing === 'INCORRECT' ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200') : 'bg-gray-50 border-gray-100'}`}>
+              <span className="text-xs text-gray-500 uppercase tracking-wider mb-2 font-semibold">BING</span>
+              {psQaResults?.expected_bing_b64 && (
+                <div className="h-12 w-full flex items-center justify-center mb-2">
+                  <img src={psQaResults.expected_bing_b64} alt="Expected BING" className="max-h-full max-w-full object-contain mix-blend-multiply opacity-90 drop-shadow-sm" />
+                </div>
+              )}
               <span className="text-sm font-medium text-gray-900">{psQaMetadata.bing}</span>
               {psQaResults && (
-                <span className={`mt-2 px-3 py-1 rounded-full text-xs font-bold ${psQaResults.bing ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                  {psQaResults.bing ? "✅ FOUND" : "❌ MISSING"}
+                <span className={`mt-2 px-3 py-1 rounded-full text-[11px] font-bold ${psQaResults.bing === 'FOUND' ? 'bg-green-100 text-green-700' : psQaResults.bing === 'INCORRECT' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>
+                  {psQaResults.bing === 'FOUND' ? "✅ FOUND" : psQaResults.bing === 'INCORRECT' ? "⚠️ INCORRECT VERSION" : "❌ CRITICAL: MISSING"}
                 </span>
               )}
             </div>
             
-            <div className={`p-4 rounded-xl border flex flex-col items-center justify-center text-center ${psQaResults ? (psQaResults.rating ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200') : 'bg-gray-50 border-gray-100'}`}>
-              <span className="text-xs text-gray-500 uppercase tracking-wider mb-1 font-semibold">RATING</span>
+            <div className={`p-4 rounded-xl border flex flex-col items-center justify-center text-center ${psQaResults ? (psQaResults.rating === 'FOUND' ? 'bg-green-50 border-green-200' : psQaResults.rating === 'INCORRECT' ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200') : 'bg-gray-50 border-gray-100'}`}>
+              <span className="text-xs text-gray-500 uppercase tracking-wider mb-2 font-semibold">RATING</span>
+              {psQaResults?.expected_rating_b64 && (
+                <div className="h-12 w-full flex items-center justify-center mb-2">
+                  <img src={psQaResults.expected_rating_b64} alt="Expected RATING" className="max-h-full max-w-full object-contain mix-blend-multiply opacity-90 drop-shadow-sm" />
+                </div>
+              )}
               <span className="text-sm font-medium text-gray-900">{psQaMetadata.rating}</span>
               {psQaResults && (
-                <span className={`mt-2 px-3 py-1 rounded-full text-xs font-bold ${psQaResults.rating ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                  {psQaResults.rating ? "✅ FOUND" : "❌ MISSING"}
+                <span className={`mt-2 px-3 py-1 rounded-full text-[11px] font-bold ${psQaResults.rating === 'FOUND' ? 'bg-green-100 text-green-700' : psQaResults.rating === 'INCORRECT' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>
+                  {psQaResults.rating === 'FOUND' ? "✅ FOUND" : psQaResults.rating === 'INCORRECT' ? "⚠️ INCORRECT VERSION" : "❌ CRITICAL: MISSING"}
                 </span>
               )}
             </div>
             
-            <div className={`p-4 rounded-xl border flex flex-col items-center justify-center text-center ${psQaResults ? (psQaResults.bong ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200') : 'bg-gray-50 border-gray-100'}`}>
-              <span className="text-xs text-gray-500 uppercase tracking-wider mb-1 font-semibold">BONG</span>
+            <div className={`p-4 rounded-xl border flex flex-col items-center justify-center text-center ${psQaResults ? (psQaResults.bong === 'FOUND' ? 'bg-green-50 border-green-200' : psQaResults.bong === 'INCORRECT' ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200') : 'bg-gray-50 border-gray-100'}`}>
+              <span className="text-xs text-gray-500 uppercase tracking-wider mb-2 font-semibold">BONG</span>
+              {psQaResults?.expected_bong_b64 && (
+                <div className="h-12 w-full flex items-center justify-center mb-2">
+                  <img src={psQaResults.expected_bong_b64} alt="Expected BONG" className="max-h-full max-w-full object-contain mix-blend-multiply opacity-90 drop-shadow-sm" />
+                </div>
+              )}
               <span className="text-sm font-medium text-gray-900">{psQaMetadata.bong}</span>
               {psQaResults && (
-                <span className={`mt-2 px-3 py-1 rounded-full text-xs font-bold ${psQaResults.bong ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                  {psQaResults.bong ? "✅ FOUND" : "❌ MISSING"}
+                <span className={`mt-2 px-3 py-1 rounded-full text-[11px] font-bold ${psQaResults.bong === 'FOUND' ? 'bg-green-100 text-green-700' : psQaResults.bong === 'INCORRECT' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>
+                  {psQaResults.bong === 'FOUND' ? "✅ FOUND" : psQaResults.bong === 'INCORRECT' ? "⚠️ INCORRECT VERSION" : "❌ CRITICAL: MISSING"}
                 </span>
               )}
             </div>

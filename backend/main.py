@@ -218,34 +218,75 @@ class AnalyzeFrameRequest(BaseModel):
     filename: str
     # Opcjonalnie możemy przyjmować kod kraju z frontendu, ale priorytet ma nazwa pliku
     country_code: Optional[str] = None
+    timestamp: Optional[float] = None
 
-def match_template(image_np, template_path, threshold=0.60):
-    if not os.path.exists(template_path):
+def match_template(image_np, template_path, threshold=0.7):
+    if not Path(template_path).exists():
         return False
-    template = cv2.imread(template_path, cv2.IMREAD_UNCHANGED)
+        
+    template = cv2.imread(str(template_path), cv2.IMREAD_UNCHANGED)
     if template is None:
         return False
         
+    has_alpha = False
     if len(template.shape) == 3 and template.shape[2] == 4:
+        has_alpha = True
+        template_mask = template[:, :, 3]
         template = cv2.cvtColor(template, cv2.COLOR_BGRA2BGR)
+        threshold = max(threshold, 0.75) # CCORR_NORMED can be more generous, so bump threshold
+    else:
+        template_mask = None
         
-    # Downsample by 50% to make matchTemplate 16x faster
-    small_image = cv2.resize(image_np, (0, 0), fx=0.5, fy=0.5)
+    # Pass 1: 1/8th scale for fast rough search
+    tiny_img = cv2.resize(image_np, (0, 0), fx=0.125, fy=0.125)
+    tiny_template = cv2.resize(template, (0, 0), fx=0.125, fy=0.125, interpolation=cv2.INTER_AREA)
+    if has_alpha:
+        tiny_mask = cv2.resize(template_mask, (0, 0), fx=0.125, fy=0.125, interpolation=cv2.INTER_AREA)
+        
+    best_scale_rough = 1.0
+    best_val_rough = 0
+    import numpy as np
     
-    best_max_val = 0
-    # Fast multi-scale: only 3 scales (0.8, 1.0, 1.2)
-    for scale in [0.8, 1.0, 1.2]: 
-        # Calculate new template size (accounting for 50% downsample of the image)
-        width = int(template.shape[1] * scale * 0.5)
-        height = int(template.shape[0] * scale * 0.5)
+    # Search from 0.2 to 1.5 in 14 steps (very fast at 1/8th scale)
+    for scale in np.linspace(0.2, 1.5, 14):
+        w = int(tiny_template.shape[1] * scale)
+        h = int(tiny_template.shape[0] * scale)
+        if w < 5 or h < 5 or w > tiny_img.shape[1] or h > tiny_img.shape[0]: continue
         
-        if width < 20 or height < 20 or width > small_image.shape[1] or height > small_image.shape[0]:
-            continue
+        rt = cv2.resize(tiny_template, (w, h), interpolation=cv2.INTER_AREA)
+        if has_alpha:
+            rm = cv2.resize(tiny_mask, (w, h), interpolation=cv2.INTER_AREA)
+            res = cv2.matchTemplate(tiny_img, rt, cv2.TM_CCORR_NORMED, mask=rm)
+        else:
+            res = cv2.matchTemplate(tiny_img, rt, cv2.TM_CCOEFF_NORMED)
             
-        resized_template = cv2.resize(template, (width, height), interpolation=cv2.INTER_AREA)
-        res = cv2.matchTemplate(small_image, resized_template, cv2.TM_CCOEFF_NORMED)
         _, max_val, _, _ = cv2.minMaxLoc(res)
+        if max_val > best_val_rough:
+            best_val_rough = max_val
+            best_scale_rough = scale
+            
+    # Pass 2: 1/4th scale for fine search around best_scale_rough
+    small_image = cv2.resize(image_np, (0, 0), fx=0.25, fy=0.25)
+    small_template = cv2.resize(template, (0, 0), fx=0.25, fy=0.25, interpolation=cv2.INTER_AREA)
+    if has_alpha:
+        small_mask = cv2.resize(template_mask, (0, 0), fx=0.25, fy=0.25, interpolation=cv2.INTER_AREA)
         
+    best_max_val = 0
+    scales_to_check = [best_scale_rough * 0.9, best_scale_rough * 0.95, best_scale_rough, best_scale_rough * 1.05, best_scale_rough * 1.1]
+    
+    for scale in scales_to_check:
+        w = int(small_template.shape[1] * scale)
+        h = int(small_template.shape[0] * scale)
+        if w < 10 or h < 10 or w > small_image.shape[1] or h > small_image.shape[0]: continue
+        
+        rt = cv2.resize(small_template, (w, h), interpolation=cv2.INTER_AREA)
+        if has_alpha:
+            rm = cv2.resize(small_mask, (w, h), interpolation=cv2.INTER_AREA)
+            res = cv2.matchTemplate(small_image, rt, cv2.TM_CCORR_NORMED, mask=rm)
+        else:
+            res = cv2.matchTemplate(small_image, rt, cv2.TM_CCOEFF_NORMED)
+            
+        _, max_val, _, _ = cv2.minMaxLoc(res)
         if max_val > best_max_val:
             best_max_val = max_val
             
@@ -264,8 +305,19 @@ async def upload_brief(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+def get_base64_from_path(path_str):
+    if not path_str or not os.path.exists(path_str):
+        return None
+    try:
+        with open(path_str, "rb") as image_file:
+            return "data:image/png;base64," + base64.b64encode(image_file.read()).decode("utf-8")
+    except Exception:
+        return None
+
 @app.post("/api/v1/analyze-elements")
 async def analyze_elements(req: AnalyzeFrameRequest):
+    import time
+    start_time = time.time()
     try:
         # Decode base64 image
         img_data = base64.b64decode(req.image_base64.split(',')[1] if ',' in req.image_base64 else req.image_base64)
@@ -310,38 +362,79 @@ async def analyze_elements(req: AnalyzeFrameRequest):
         bong_type = reqs.get("BONG", "Standard")
         bing_type = reqs.get("BING", "Standard")
         
-        # Rating path logic (e.g. RATINGS/PEGI/PEGI_18_cropped.png)
-        # To wymaga żeby rating z Excela zgadzał się z nazwami plików. 
-        # Na razie szukamy pliku, który w nazwie ma wiek (np. 18, 12, T, M).
-        rating_folder = cv_assets_dir / "RATINGS" / rating_org
-        rating_path = ""
+        # Rating path logic
+        RATING_ORG_MAP = {
+            "SEGOB": "MX",
+            "CLASSIND": "BR",
+            "GRAC": "KR",
+            "OFLC": "AUS"
+        }
+        mapped_org = RATING_ORG_MAP.get(rating_org.upper(), rating_org)
+        rating_folder = cv_assets_dir / "RATINGS" / mapped_org
+        rating_paths_to_check = []
         if rating_folder.exists():
             for f in rating_folder.glob("*_cropped.png"):
-                if str(rating_age) in f.name:
-                    rating_path = str(f)
-                    break
-                    
+                name_upper = f.name.upper()
+                # Strict matching to avoid E-T, T-M, ToTeen, etc.
+                if rating_org == "ESRB":
+                    if rating_age == "T":
+                        if ("_T_" in name_upper or "TEEN_" in name_upper or "ESRB_T" in name_upper or "ESRB_2013_TEEN" in name_upper) and not any(x in name_upper for x in ["T-M", "E-T", "TOTEEN", "TOMATURE"]):
+                            rating_paths_to_check.append(str(f))
+                    elif rating_age == "E":
+                        if ("_E_" in name_upper or "EVERYONE_" in name_upper or "ESRB_E" in name_upper) and not any(x in name_upper for x in ["E-T", "E-M", "E10", "TOEVERYONE"]):
+                            rating_paths_to_check.append(str(f))
+                    elif rating_age == "E10+":
+                        if ("E10" in name_upper or "EVERYONE10" in name_upper) and not any(x in name_upper for x in ["TOEVERYONE", "TOADULTS"]):
+                            rating_paths_to_check.append(str(f))
+                    elif rating_age == "M":
+                        if ("_M_" in name_upper or "MATURE_" in name_upper or "ESRB_M" in name_upper) and not any(x in name_upper for x in ["T-M", "E-M", "TOMATURE"]):
+                            rating_paths_to_check.append(str(f))
+                    else:
+                        if str(rating_age).upper() in name_upper:
+                            rating_paths_to_check.append(str(f))
+                else:
+                    # Exact match pattern for ratings (e.g. _B15_, _M_, _18_)
+                    if f"_{str(rating_age).upper()}_" in name_upper:
+                        rating_paths_to_check.append(str(f))
+                        
+        # Get aspect ratio of the incoming video
+        bong_dim = "16x9"
+        if req.filename:
+            fname = req.filename.upper()
+            if "9X16" in fname or "9:16" in fname or "1080X1920" in fname:
+                bong_dim = "9x16"
+            elif "1X1" in fname or "1:1" in fname or "1080X1080" in fname:
+                bong_dim = "1x1"
+            elif "16X9" in fname or "16:9" in fname or "1920X1080" in fname or "3840X2160" in fname:
+                bong_dim = "16x9"
+                
         # Bong path logic
-        bong_path_cropped = cv_assets_dir / "BONG" / bong_dim / lang_code / "shot1_cropped.png"
-        bong_path_std = cv_assets_dir / "BONG" / bong_dim / lang_code / "shot1.png"
-        bong_shot2_cropped = cv_assets_dir / "BONG" / bong_dim / lang_code / "shot2_cropped.png"
+        bong_lang = lang_code
+        if "-" in lang_code:
+            bong_lang = lang_code.split("-")[1]
+            
+        VALID_BONG_LANGS = ["AR", "EN_R", "EN_TM", "ES", "ES_R", "FR", "FR_ALT", "JA", "PT", "RU", "TR", "UA", "ZH"]
+        
+        phnl_localised = str(reqs.get("PHNL LOCK-UP LOCALISED?", "NO")).upper().strip()
+        phnl_lang = str(reqs.get("PHNL LANGUAGE", "")).upper().strip()
         
         paths_to_check = []
-        if bong_path_cropped.exists():
-            paths_to_check.append(str(bong_path_cropped))
-        elif bong_path_std.exists():
-            paths_to_check.append(str(bong_path_std))
-        else:
-            univ_cropped = cv_assets_dir / "BONG" / bong_dim / "Universal" / "shot1_cropped.png"
-            univ_std = cv_assets_dir / "BONG" / bong_dim / "Universal" / "shot1.png"
-            paths_to_check.append(str(univ_cropped if univ_cropped.exists() else univ_std))
+        is_universal = False
+        
+        if phnl_localised == "NO" or "US (MASTER)" in phnl_lang or "ENGLISH" in phnl_lang:
+            is_universal = True
+        elif bong_lang not in VALID_BONG_LANGS:
+            is_universal = True
             
-        if bong_shot2_cropped.exists():
-            paths_to_check.append(str(bong_shot2_cropped))
+        if is_universal:
+            for univ_lang in ["EN_R", "EN_TM"]:
+                cp = cv_assets_dir / "BONG" / bong_dim / univ_lang / "shot1_cropped.png"
+                sp = cv_assets_dir / "BONG" / bong_dim / univ_lang / "shot1.png"
+                paths_to_check.append(str(cp if cp.exists() else sp))
         else:
-            univ_shot2 = cv_assets_dir / "BONG" / bong_dim / "Universal" / "shot2_cropped.png"
-            if univ_shot2.exists():
-                paths_to_check.append(str(univ_shot2))
+            cp = cv_assets_dir / "BONG" / bong_dim / bong_lang / "shot1_cropped.png"
+            sp = cv_assets_dir / "BONG" / bong_dim / bong_lang / "shot1.png"
+            paths_to_check.append(str(cp if cp.exists() else sp))
             
         # Bing path logic
         bing_cropped = cv_assets_dir / "BING" / bong_dim / "Universal" / "shot1_cropped.png"
@@ -352,20 +445,40 @@ async def analyze_elements(req: AnalyzeFrameRequest):
         
         # Rating - sprawdzamy wszystkie pasujące szablony i jeśli jakikolwiek pasuje, to sukces
         has_rating = False
-        if rating_folder.exists():
-            for f in rating_folder.glob("*_cropped.png"):
-                if str(rating_age) in f.name:
-                    if match_template(img_np, str(f)):
-                        has_rating = True
-                        break
-                        
-        has_bing = match_template(img_np, bing_path)
+        for rp in rating_paths_to_check:
+            if match_template(img_np, rp):
+                has_rating = True
+                break
         
+        is_start = req.timestamp is None or req.timestamp <= 4.0
+        is_end = req.timestamp is None or req.timestamp >= 10.0
+        
+        rating_status = "FOUND" if has_rating else "MISSING"
+        if not has_rating and rating_folder.exists() and is_start:
+            generic_paths = [str(p) for p in rating_folder.glob("*_cropped.png") if ("_M_" in p.name or "_T_" in p.name or "_E_" in p.name or "18" in p.name or "16" in p.name or "12" in p.name)]
+            for gp in generic_paths[:5]:
+                if match_template(img_np, gp):
+                    rating_status = "INCORRECT"
+                    break
+
+        has_bing = match_template(img_np, bing_path)
+        bing_status = "FOUND" if has_bing else "MISSING"
+        if not has_bing and is_start:
+            pss_bing = cv_assets_dir / "BING" / bong_dim / "PS Studios" / "shot1_cropped.png"
+            if pss_bing.exists() and match_template(img_np, str(pss_bing)):
+                bing_status = "INCORRECT"
+                
         has_bong = False
         for bp in paths_to_check:
             if match_template(img_np, bp):
                 has_bong = True
                 break
+        bong_status = "FOUND" if has_bong else "MISSING"
+
+        # Prepare base64 images of expected templates
+        expected_rating_b64 = get_base64_from_path(rating_paths_to_check[0] if rating_paths_to_check else None)
+        expected_bong_b64 = get_base64_from_path(paths_to_check[0] if paths_to_check else None)
+        expected_bing_b64 = get_base64_from_path(bing_path)
         
         # Debug: Save frames if something is missing
         if not (has_rating and has_bing and has_bong):
@@ -379,9 +492,12 @@ async def analyze_elements(req: AnalyzeFrameRequest):
         return {
             "success": True, 
             "metadata_used": {"language": lang_code, "dimension": dimension, "expected_requirements": reqs},
-            "rating": has_rating, 
-            "bing": has_bing, 
-            "bong": has_bong
+            "rating": rating_status, 
+            "bing": bing_status, 
+            "bong": bong_status,
+            "expected_rating_b64": expected_rating_b64,
+            "expected_bing_b64": expected_bing_b64,
+            "expected_bong_b64": expected_bong_b64
         }
     except HTTPException:
         raise
