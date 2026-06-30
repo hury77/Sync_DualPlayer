@@ -831,6 +831,15 @@ export const SyncDualPlayer: React.FC = () => {
       activePollsRef.current.emission = undefined;
     }
 
+    const videos = [acceptanceVideoRef.current, emissionVideoRef.current];
+    videos.forEach((video) => {
+      if (video) {
+        video.pause();
+        video.removeAttribute('src');
+        video.load();
+      }
+    });
+
     cleanUpFile(acceptanceFile);
     cleanUpFile(emissionFile);
     setAcceptanceFile(null);
@@ -3492,6 +3501,7 @@ export const SyncDualPlayer: React.FC = () => {
               }`}
               title="Wycisz wszystko"
             >
+              {isMuted ? <SpeakerXMarkIcon className="w-5 h-5" /> : <SpeakerWaveIcon className="w-5 h-5" />}
             </button>
           </div>
         </div>

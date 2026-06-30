@@ -375,6 +375,19 @@ async def analyze_elements(req: AnalyzeFrameRequest):
         if rating_folder.exists():
             for f in rating_folder.glob("*_cropped.png"):
                 name_upper = f.name.upper()
+                
+                # Filter ESRB templates based on language/region
+                if rating_org == "ESRB":
+                    is_french = "FR" in lang_code.upper()
+                    is_spanish = "ES" in lang_code.upper() or "LATAM" in lang_code.upper()
+                    
+                    if is_french and not any(x in name_upper for x in ["FR", "FRENCH", "FRE", "CA_"]):
+                        continue
+                    if is_spanish and not any(x in name_upper for x in ["SP", "SPANISH", "LATAM"]):
+                        continue
+                    if not is_french and not is_spanish and any(x in name_upper for x in ["FR", "FRENCH", "FRE", "SP", "SPANISH", "LATAM"]):
+                        continue
+
                 # Strict matching to avoid E-T, T-M, ToTeen, etc.
                 if rating_org == "ESRB":
                     if rating_age == "T":
@@ -445,9 +458,11 @@ async def analyze_elements(req: AnalyzeFrameRequest):
         
         # Rating - sprawdzamy wszystkie pasujące szablony i jeśli jakikolwiek pasuje, to sukces
         has_rating = False
+        rating_path_used = None
         for rp in rating_paths_to_check:
             if match_template(img_np, rp):
                 has_rating = True
+                rating_path_used = rp
                 break
         
         is_start = req.timestamp is None or req.timestamp <= 4.0
@@ -474,10 +489,11 @@ async def analyze_elements(req: AnalyzeFrameRequest):
                 has_bong = True
                 break
         bong_status = "FOUND" if has_bong else "MISSING"
+        bong_path_used = next((bp for bp in paths_to_check if match_template(img_np, bp)), None)
 
         # Prepare base64 images of expected templates
-        expected_rating_b64 = get_base64_from_path(rating_paths_to_check[0] if rating_paths_to_check else None)
-        expected_bong_b64 = get_base64_from_path(paths_to_check[0] if paths_to_check else None)
+        expected_rating_b64 = get_base64_from_path(rating_path_used if rating_path_used else (rating_paths_to_check[0] if rating_paths_to_check else None))
+        expected_bong_b64 = get_base64_from_path(bong_path_used if bong_path_used else (paths_to_check[0] if paths_to_check else None))
         expected_bing_b64 = get_base64_from_path(bing_path)
         
         # Debug: Save frames if something is missing
