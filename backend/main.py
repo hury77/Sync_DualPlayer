@@ -220,12 +220,17 @@ class AnalyzeFrameRequest(BaseModel):
     country_code: Optional[str] = None
     timestamp: Optional[float] = None
 
-def match_template(image_np, template_path, threshold=0.7):
-    if not Path(template_path).exists():
+def match_template(image_np, template_path, threshold=0.8, return_score=False):
+    import cv2
+    if not os.path.exists(template_path):
+        if return_score:
+            return False, 0.0
         return False
         
     template = cv2.imread(str(template_path), cv2.IMREAD_UNCHANGED)
     if template is None:
+        if return_score:
+            return False, 0.0
         return False
         
     has_alpha = False
@@ -290,9 +295,9 @@ def match_template(image_np, template_path, threshold=0.7):
         if max_val > best_max_val:
             best_max_val = max_val
             
-    if best_max_val >= threshold:
-        return True
-    return False
+    if return_score:
+        return best_max_val >= threshold, best_max_val
+    return best_max_val >= threshold
 
 @app.post("/api/v1/brief/upload")
 async def upload_brief(file: UploadFile = File(...)):
@@ -456,25 +461,54 @@ async def analyze_elements(req: AnalyzeFrameRequest):
             
         # 4. Wykonanie Computer Vision (Template Matching)
         
-        # Rating - sprawdzamy wszystkie pasujące szablony i jeśli jakikolwiek pasuje, to sukces
-        has_rating = False
-        rating_path_used = None
-        for rp in rating_paths_to_check:
-            if match_template(img_np, rp):
-                has_rating = True
-                rating_path_used = rp
-                break
-        
         is_start = req.timestamp is None or req.timestamp <= 4.0
         is_end = req.timestamp is None or req.timestamp >= 10.0
         
-        rating_status = "FOUND" if has_rating else "MISSING"
-        if not has_rating and rating_folder.exists() and is_start:
+        best_allowed_score = 0
+        best_allowed_path = None
+        has_rating = False
+        
+        # Testujemy wszystkie dozwolone szablony
+        for rp in rating_paths_to_check:
+            matched, score = match_template(img_np, rp, return_score=True)
+            if score > best_allowed_score:
+                best_allowed_score = score
+                best_allowed_path = rp
+                
+        # Zbieramy generyczne szablony do testu rezerwowego
+        best_generic_score = 0
+        best_generic_path = None
+        
+        if rating_folder.exists() and is_start:
             generic_paths = [str(p) for p in rating_folder.glob("*_cropped.png") if ("_M_" in p.name or "_T_" in p.name or "_E_" in p.name or "18" in p.name or "16" in p.name or "12" in p.name)]
-            for gp in generic_paths[:5]:
-                if match_template(img_np, gp):
-                    rating_status = "INCORRECT"
-                    break
+            for gp in generic_paths[:10]:
+                if gp in rating_paths_to_check:
+                    continue
+                matched, score = match_template(img_np, gp, return_score=True)
+                if score > best_generic_score:
+                    best_generic_score = score
+                    best_generic_path = gp
+
+        # Konkurencja między poprawnym a niepoprawnym (ale podobnym wizualnie) znakiem
+        if best_allowed_score >= 0.8:
+            if best_generic_score > best_allowed_score + 0.02:
+                # Generyczny pasuje zauważalnie lepiej (np. 0.98 vs 0.85)
+                rating_status = "INCORRECT"
+                has_rating = False
+                rating_path_used = best_generic_path
+            else:
+                rating_status = "FOUND"
+                has_rating = True
+                rating_path_used = best_allowed_path
+        else:
+            if best_generic_score >= 0.8:
+                rating_status = "INCORRECT"
+                has_rating = False
+                rating_path_used = best_generic_path
+            else:
+                rating_status = "MISSING"
+                has_rating = False
+                rating_path_used = None
 
         has_bing = match_template(img_np, bing_path)
         bing_status = "FOUND" if has_bing else "MISSING"
