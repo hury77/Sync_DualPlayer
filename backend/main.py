@@ -381,7 +381,7 @@ async def analyze_elements(req: AnalyzeFrameRequest):
                     is_french = "FR" in lang_code.upper()
                     is_spanish = "ES" in lang_code.upper() or "LATAM" in lang_code.upper()
                     
-                    if is_french and not any(x in name_upper for x in ["FR", "FRENCH", "FRE", "CA_"]):
+                    if is_french and not any(x in name_upper for x in ["FR", "FRENCH", "FRE"]):
                         continue
                     if is_spanish and not any(x in name_upper for x in ["SP", "SPANISH", "LATAM"]):
                         continue
