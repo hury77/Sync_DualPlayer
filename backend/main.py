@@ -468,11 +468,29 @@ async def analyze_elements(req: AnalyzeFrameRequest):
         has_rating = False
         
         # Testujemy wszystkie dozwolone szablony
+        allowed_results = []
         for rp in rating_paths_to_check:
             matched, score = match_template(img_np, rp, return_score=True)
-            if score > best_allowed_score:
-                best_allowed_score = score
-                best_allowed_path = rp
+            if score > 0.5:
+                try:
+                    tmp_img = cv2.imread(rp, cv2.IMREAD_UNCHANGED)
+                    ar = tmp_img.shape[1] / float(tmp_img.shape[0]) if tmp_img is not None else 1.0
+                except:
+                    ar = 1.0
+                allowed_results.append((score, ar, rp))
+                
+        if allowed_results:
+            allowed_results.sort(key=lambda x: x[0], reverse=True)
+            best_allowed_score = allowed_results[0][0]
+            best_allowed_path = allowed_results[0][2]
+            
+            # Prefer vertical/square generic templates over wide templates with descriptors if scores are close
+            for score, ar, rp in allowed_results:
+                if score >= best_allowed_score - 0.12 and score >= 0.75:
+                    if ar <= 1.25 and allowed_results[0][1] > 1.4:
+                        best_allowed_score = score
+                        best_allowed_path = rp
+                        break
                 
         # Zbieramy generyczne szablony do testu rezerwowego
         best_generic_score = 0
