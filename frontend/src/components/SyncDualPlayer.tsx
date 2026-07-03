@@ -861,6 +861,8 @@ export const SyncDualPlayer: React.FC = () => {
     setOcrTextAcceptance("");
     setOcrTextEmission("");
     setOcrBriefText("");
+    setPsQaResults(null);
+    setPsQaMetadata(null);
   };
 
   const getMouseSourceCoordinates = (e: React.MouseEvent<HTMLVideoElement>, videoRef: React.RefObject<HTMLVideoElement | null>) => {
