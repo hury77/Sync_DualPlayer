@@ -1,6 +1,6 @@
 #!/bin/bash
 
-APP_VERSION="2.2"
+APP_VERSION="2.3"
 APP_NAME="Sync_DualPlayer"
 APP_DIR="${APP_NAME}.app"
 SRC_DIR="${APP_DIR}/Contents/MacOS/src"

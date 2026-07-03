@@ -349,7 +349,7 @@ export const SyncDualPlayer: React.FC = () => {
         Math.max(0, dur - 0.7), Math.max(0, dur - 0.5) // Covers both BONG shot1 and shot2
       ];
       
-      let finalMetaUsed = null;
+      let finalMetaUsed: any = null;
       
       const analyzeFrame = async (base64: string, timestamp: number) => {
         try {
