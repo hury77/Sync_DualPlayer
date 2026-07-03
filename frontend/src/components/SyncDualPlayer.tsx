@@ -234,7 +234,7 @@ export const SyncDualPlayer: React.FC = () => {
     
     try {
       // W środowisku DEV, hardcode jak w Copydeck, w PROD powinno być zmienną środowiskową
-      const res = await fetch("http://localhost:8003/api/v1/brief/upload", {
+      const res = await fetch("/api/v1/brief/upload", {
         method: "POST",
         body: formData,
       });
@@ -263,7 +263,7 @@ export const SyncDualPlayer: React.FC = () => {
     formData.append("file", file);
     
     try {
-      const res = await fetch("http://localhost:8003/api/v1/copydeck/parse", {
+      const res = await fetch("/api/v1/copydeck/parse", {
         method: "POST",
         body: formData,
       });
@@ -353,7 +353,7 @@ export const SyncDualPlayer: React.FC = () => {
       
       const analyzeFrame = async (base64: string, timestamp: number) => {
         try {
-          const res = await fetch("http://localhost:8003/api/v1/analyze-elements", {
+          const res = await fetch("/api/v1/analyze-elements", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ image_base64: base64, country_code: meta.country, filename: acceptanceFile.name, timestamp: timestamp })
