@@ -62,7 +62,6 @@ def transcode_to_mp4(input_path: Path, output_path: Path, file_id: int):
             "-nostdin",
             "-y",
             "-i", str(input_path),
-            "-vf", "scale=-2:720",
             "-c:v", "h264_videotoolbox",
             "-b:v", "3M",
             "-c:a", "aac",

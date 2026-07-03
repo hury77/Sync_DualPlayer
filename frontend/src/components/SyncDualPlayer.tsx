@@ -2591,7 +2591,7 @@ export const SyncDualPlayer: React.FC = () => {
         </div>
         <div className="flex flex-col justify-center pt-0.5">
           <h2 className="text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-gray-900 to-gray-600 mb-1 tracking-tight flex items-center">
-            VITO <span className="text-gray-400 font-medium text-2xl tracking-normal mx-3">Video Inspector Tool Observer</span><span className="text-xs text-purple-600 font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-purple-100/50 border border-purple-200 shadow-sm align-middle mt-1">v2.3</span>
+            VITO <span className="text-gray-400 font-medium text-2xl tracking-normal mx-3">Video Inspector Tool Observer</span><span className="text-xs text-purple-600 font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-purple-100/50 border border-purple-200 shadow-sm align-middle mt-1">v2.4</span>
           </h2>
           <p className="text-gray-500 text-sm md:text-base font-medium max-w-4xl leading-relaxed">
             Automatyczny audyt wideo: weryfikacja wizualna, parsowanie Excela (Copydeck) i porównywanie tekstu w locie (OCR).
