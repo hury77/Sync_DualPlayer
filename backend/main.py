@@ -385,7 +385,7 @@ async def analyze_elements(req: AnalyzeFrameRequest):
                     is_french = "FR" in lang_code.upper()
                     is_spanish = "ES" in lang_code.upper() or "LATAM" in lang_code.upper()
                     
-                    if is_french and not any(x in name_upper for x in ["FR", "FRENCH", "FRE"]):
+                    if is_french and not any(x in name_upper for x in ["FR", "FRENCH", "FRE", "CA", "BILINGUAL", "ET "]):
                         continue
                     if is_spanish and not any(x in name_upper for x in ["SP", "SPANISH", "LATAM"]):
                         continue
@@ -395,7 +395,7 @@ async def analyze_elements(req: AnalyzeFrameRequest):
                 # Strict matching to avoid E-T, T-M, ToTeen, etc.
                 if rating_org == "ESRB":
                     if rating_age == "T":
-                        if ("_T_" in name_upper or "TEEN_" in name_upper or "ESRB_T" in name_upper or "ESRB_2013_TEEN" in name_upper) and not any(x in name_upper for x in ["T-M", "E-T", "TOTEEN", "TOMATURE"]):
+                        if ("_T_" in name_upper or "TEEN_" in name_upper or "ESRB_T" in name_upper or "ESRB_2013_TEEN" in name_upper or "BILINGUAL" in name_upper) and not any(x in name_upper for x in ["T-M", "E-T", "TOTEEN", "TOMATURE"]):
                             rating_paths_to_check.append(str(f))
                     elif rating_age == "E":
                         if ("_E_" in name_upper or "EVERYONE_" in name_upper or "ESRB_E" in name_upper) and not any(x in name_upper for x in ["E-T", "E-M", "E10", "TOEVERYONE"]):
@@ -521,7 +521,20 @@ async def analyze_elements(req: AnalyzeFrameRequest):
             if match_template(img_np, bp):
                 has_bong = True
                 break
-        bong_status = "FOUND" if has_bong else "MISSING"
+                
+        is_6s = req.filename and ("06S" in req.filename.upper() or "_6S" in req.filename.upper() or "-6S" in req.filename.upper())
+        
+        if is_6s:
+            if has_bong:
+                bong_status = "FOUND_IN_6S"
+            else:
+                bong_status = "CORRECT_NO_BONG"
+                if req.timestamp is not None and req.timestamp >= 4.5:
+                    mean_val = cv2.mean(img_np)[0]
+                    if mean_val < 10:
+                        bong_status = "BLACK_FRAME_6S"
+        else:
+            bong_status = "FOUND" if has_bong else "MISSING"
         bong_path_used = next((bp for bp in paths_to_check if match_template(img_np, bp)), None)
 
         # Prepare base64 images of expected templates

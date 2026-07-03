@@ -406,8 +406,11 @@ export const SyncDualPlayer: React.FC = () => {
          if (res.bing === "FOUND") finalBing = "FOUND";
          else if (res.bing === "INCORRECT" && finalBing !== "FOUND") finalBing = "INCORRECT";
 
-         if (res.bong === "FOUND") finalBong = "FOUND";
-         else if (res.bong === "INCORRECT" && finalBong !== "FOUND") finalBong = "INCORRECT";
+         if (res.bong === "BLACK_FRAME_6S") finalBong = "BLACK_FRAME_6S";
+         else if (res.bong === "FOUND_IN_6S" && finalBong !== "BLACK_FRAME_6S") finalBong = "FOUND_IN_6S";
+         else if (res.bong === "FOUND" && !["BLACK_FRAME_6S", "FOUND_IN_6S"].includes(finalBong)) finalBong = "FOUND";
+         else if (res.bong === "INCORRECT" && !["FOUND", "BLACK_FRAME_6S", "FOUND_IN_6S"].includes(finalBong)) finalBong = "INCORRECT";
+         else if (res.bong === "CORRECT_NO_BONG" && finalBong === "MISSING") finalBong = "CORRECT_NO_BONG";
 
          if (res.expected_rating_b64) expRating = res.expected_rating_b64;
          if (res.expected_bing_b64) expBing = res.expected_bing_b64;
@@ -2886,7 +2889,7 @@ export const SyncDualPlayer: React.FC = () => {
               )}
             </div>
             
-            <div className={`p-4 rounded-xl border flex flex-col items-center justify-center text-center ${psQaResults ? (psQaResults.bong === 'FOUND' ? 'bg-green-50 border-green-200' : psQaResults.bong === 'INCORRECT' ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200') : 'bg-gray-50 border-gray-100'}`}>
+            <div className={`p-4 rounded-xl border flex flex-col items-center justify-center text-center ${psQaResults ? (['FOUND', 'CORRECT_NO_BONG'].includes(psQaResults.bong) ? 'bg-green-50 border-green-200' : ['INCORRECT'].includes(psQaResults.bong) ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200') : 'bg-gray-50 border-gray-100'}`}>
               <span className="text-xs text-gray-500 uppercase tracking-wider mb-2 font-semibold">BONG</span>
               {psQaResults?.expected_bong_b64 && (
                 <div className="h-12 w-full flex items-center justify-center mb-2">
@@ -2895,8 +2898,12 @@ export const SyncDualPlayer: React.FC = () => {
               )}
               <span className="text-sm font-medium text-gray-900">{psQaMetadata.bong}</span>
               {psQaResults && (
-                <span className={`mt-2 px-3 py-1 rounded-full text-[11px] font-bold ${psQaResults.bong === 'FOUND' ? 'bg-green-100 text-green-700' : psQaResults.bong === 'INCORRECT' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>
-                  {psQaResults.bong === 'FOUND' ? "✅ FOUND" : psQaResults.bong === 'INCORRECT' ? "⚠️ INCORRECT VERSION" : "❌ CRITICAL: MISSING"}
+                <span className={`mt-2 px-3 py-1 rounded-full text-[11px] font-bold ${['FOUND', 'CORRECT_NO_BONG'].includes(psQaResults.bong) ? 'bg-green-100 text-green-700' : ['INCORRECT'].includes(psQaResults.bong) ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>
+                  {psQaResults.bong === 'FOUND' ? "✅ FOUND" : 
+                   psQaResults.bong === 'CORRECT_NO_BONG' ? "✅ CORRECT: NO BONG" : 
+                   psQaResults.bong === 'FOUND_IN_6S' ? "❌ ERROR: NOT ALLOWED IN 6S" : 
+                   psQaResults.bong === 'BLACK_FRAME_6S' ? "❌ ERROR: BLACK FRAME AT END" : 
+                   psQaResults.bong === 'INCORRECT' ? "⚠️ INCORRECT VERSION" : "❌ CRITICAL: MISSING"}
                 </span>
               )}
             </div>
@@ -2989,8 +2996,8 @@ export const SyncDualPlayer: React.FC = () => {
                 {isSinglePlayerMode ? 'Video Preview (Inspection)' : 'Acceptance (Reference)'}
               </h3>
               {acceptanceFile && (
-                <p className="text-xs text-gray-500 flex items-center mt-0.5" title={acceptanceFile.name}>
-                  <span className="break-all">{acceptanceFile.name}</span>
+                <p className="text-xs text-gray-500 flex flex-wrap items-center mt-0.5" title={acceptanceFile.name}>
+                  <span className="truncate max-w-[200px] sm:max-w-[300px] md:max-w-[400px] lg:max-w-[500px]">{acceptanceFile.name}</span>
                   <span className="flex-shrink-0 ml-1.5 font-medium whitespace-nowrap">
                     • {formatFileSize(acceptanceFile.size)}
                     {accDimensions && ` • ${accDimensions.width}x${accDimensions.height}`}
@@ -3145,8 +3152,8 @@ export const SyncDualPlayer: React.FC = () => {
             <div>
               <h3 className="font-semibold text-red-800">Emission</h3>
               {emissionFile && (
-                <p className="text-xs text-gray-500 flex items-center mt-0.5" title={emissionFile.name}>
-                  <span className="break-all">{emissionFile.name}</span>
+                <p className="text-xs text-gray-500 flex flex-wrap items-center mt-0.5" title={emissionFile.name}>
+                  <span className="truncate max-w-[200px] sm:max-w-[300px] md:max-w-[400px] lg:max-w-[500px]">{emissionFile.name}</span>
                   <span className="flex-shrink-0 ml-1.5 font-medium whitespace-nowrap">
                     • {formatFileSize(emissionFile.size)}
                     {emDimensions && ` • ${emDimensions.width}x${emDimensions.height}`}
