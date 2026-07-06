@@ -414,6 +414,26 @@ async def analyze_elements(req: AnalyzeFrameRequest):
                     if f"_{str(rating_age).upper()}_" in name_upper:
                         rating_paths_to_check.append(str(f))
                         
+        # Filter by Excel Image Aspect Ratio (if available)
+        excel_ar = reqs.get("RATING_ASPECT_RATIO")
+        if excel_ar is not None and rating_paths_to_check:
+            filtered_paths = []
+            for rp in rating_paths_to_check:
+                try:
+                    tmp = cv2.imread(rp, cv2.IMREAD_UNCHANGED)
+                    if tmp is not None:
+                        rp_ar = tmp.shape[1] / float(tmp.shape[0])
+                        # If Excel icon is Vertical/Square (AR < 1.3), only allow templates with AR < 1.3
+                        # If Excel icon is Wide (AR >= 1.3), only allow templates with AR >= 1.3
+                        if (excel_ar < 1.3 and rp_ar < 1.3) or (excel_ar >= 1.3 and rp_ar >= 1.3):
+                            filtered_paths.append(rp)
+                except Exception as e:
+                    print(f"Error checking aspect ratio for {rp}: {e}")
+                    filtered_paths.append(rp)
+            # Only apply if it didn't filter out everything
+            if filtered_paths:
+                rating_paths_to_check = filtered_paths
+                        
         # Get aspect ratio of the incoming video
         bong_dim = "16x9"
         if req.filename:
