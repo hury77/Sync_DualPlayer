@@ -210,7 +210,7 @@ async def delete_file(file_id: int):
     return {"status": "ok", "detail": "Files deleted successfully"}
 
 
-from parsers import parse_filename, get_requirements_from_brief, ParserError
+from parsers import parse_filename, get_requirements_from_brief, ParserError, extract_rating_icon_from_brief
 
 class AnalyzeFrameRequest(BaseModel):
     image_base64: str
@@ -318,6 +318,73 @@ def get_base64_from_path(path_str):
     except Exception:
         return None
 
+def match_brief_icon_to_db(icon_bytes: bytes, rating_folder: Path):
+    """
+    Używa algorytmu ORB do dopasowania ikony z briefu do bazy szablonów.
+    Zwraca krotkę (najlepsza_sciezka, wynik_dopasowania).
+    """
+    if not icon_bytes or not rating_folder.exists():
+        return None, 0
+        
+    try:
+        brief_img = cv2.imdecode(np.frombuffer(icon_bytes, np.uint8), cv2.IMREAD_COLOR)
+        if brief_img is None:
+            return None, 0
+            
+        bh, bw = brief_img.shape[:2]
+        
+        orb = cv2.ORB_create(nfeatures=500)
+        bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+        
+        brief_gray = cv2.cvtColor(brief_img, cv2.COLOR_BGR2GRAY)
+        kp1, des1 = orb.detectAndCompute(brief_gray, None)
+        
+        if des1 is None:
+            return None, 0
+            
+        avg_brightness = brief_gray.mean()
+        bg_color = 0 if avg_brightness < 128 else 255
+        
+        best_score = 0
+        best_path = None
+        
+        for f in rating_folder.glob("*_cropped.png"):
+            template = cv2.imread(str(f), cv2.IMREAD_UNCHANGED)
+            if template is None:
+                continue
+                
+            if len(template.shape) == 3 and template.shape[2] == 4:
+                alpha = template[:,:,3:4] / 255.0
+                bgr = template[:,:,:3]
+                bg = np.ones_like(bgr) * bg_color
+                composited = (bgr * alpha + bg * (1 - alpha)).astype(np.uint8)
+            else:
+                composited = template
+                
+            resized = cv2.resize(composited, (bw, bh))
+            template_gray = cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY)
+            
+            kp2, des2 = orb.detectAndCompute(template_gray, None)
+            if des2 is None:
+                continue
+                
+            matches = bf.match(des1, des2)
+            if len(matches) == 0:
+                continue
+                
+            matches = sorted(matches, key=lambda x: x.distance)
+            good = [m for m in matches if m.distance < 50]
+            score = len(good) / max(len(kp1), 1)
+            
+            if score > best_score:
+                best_score = score
+                best_path = str(f)
+                
+        return best_path, best_score
+    except Exception as e:
+        print(f"Błąd podczas match_brief_icon_to_db: {e}")
+        return None, 0
+
 @app.post("/api/v1/analyze-elements")
 async def analyze_elements(req: AnalyzeFrameRequest):
     import time
@@ -376,7 +443,19 @@ async def analyze_elements(req: AnalyzeFrameRequest):
         mapped_org = RATING_ORG_MAP.get(rating_org.upper(), rating_org)
         rating_folder = cv_assets_dir / "RATINGS" / mapped_org
         rating_paths_to_check = []
-        if rating_folder.exists():
+        brief_rating_b64 = None
+        
+        # 1. Próba wyciągnięcia i dopasowania ikony z briefu
+        icon_bytes = extract_rating_icon_from_brief(brief_path, sheet_name)
+        if icon_bytes:
+            import base64
+            brief_rating_b64 = "data:image/png;base64," + base64.b64encode(icon_bytes).decode("utf-8")
+            best_db_path, orb_score = match_brief_icon_to_db(icon_bytes, rating_folder)
+            if best_db_path:
+                rating_paths_to_check = [best_db_path]
+                
+        # 2. Fallback na tekstowe wyszukiwanie, jeśli ikony brak lub ORB nie dopasował
+        if not rating_paths_to_check and rating_folder.exists():
             for f in rating_folder.glob("*_cropped.png"):
                 name_upper = f.name.upper()
                 
@@ -413,26 +492,6 @@ async def analyze_elements(req: AnalyzeFrameRequest):
                     # Exact match pattern for ratings (e.g. _B15_, _M_, _18_)
                     if f"_{str(rating_age).upper()}_" in name_upper:
                         rating_paths_to_check.append(str(f))
-                        
-        # Filter by Excel Image Aspect Ratio (if available)
-        excel_ar = reqs.get("RATING_ASPECT_RATIO")
-        if excel_ar is not None and rating_paths_to_check:
-            filtered_paths = []
-            for rp in rating_paths_to_check:
-                try:
-                    tmp = cv2.imread(rp, cv2.IMREAD_UNCHANGED)
-                    if tmp is not None:
-                        rp_ar = tmp.shape[1] / float(tmp.shape[0])
-                        # If Excel icon is Vertical/Square (AR < 1.3), only allow templates with AR < 1.3
-                        # If Excel icon is Wide (AR >= 1.3), only allow templates with AR >= 1.3
-                        if (excel_ar < 1.3 and rp_ar < 1.3) or (excel_ar >= 1.3 and rp_ar >= 1.3):
-                            filtered_paths.append(rp)
-                except Exception as e:
-                    print(f"Error checking aspect ratio for {rp}: {e}")
-                    filtered_paths.append(rp)
-            # Only apply if it didn't filter out everything
-            if filtered_paths:
-                rating_paths_to_check = filtered_paths
                         
         # Get aspect ratio of the incoming video
         bong_dim = "16x9"
@@ -576,9 +635,14 @@ async def analyze_elements(req: AnalyzeFrameRequest):
         bong_path_used = next((bp for bp in paths_to_check if match_template(img_np, bp)), None)
 
         # Prepare base64 images of expected templates
-        expected_rating_b64 = get_base64_from_path(rating_path_used if rating_path_used else (rating_paths_to_check[0] if rating_paths_to_check else None))
-        expected_bong_b64 = get_base64_from_path(bong_path_used if bong_path_used else (paths_to_check[0] if paths_to_check else None))
+        expected_rating_b64 = get_base64_from_path(rating_paths_to_check[0] if rating_paths_to_check else None)
+        found_rating_b64 = get_base64_from_path(rating_path_used) if rating_path_used else None
+        
+        expected_bong_b64 = get_base64_from_path(paths_to_check[0] if paths_to_check else None)
+        found_bong_b64 = get_base64_from_path(bong_path_used) if bong_path_used else None
+        
         expected_bing_b64 = get_base64_from_path(bing_path)
+        found_bing_b64 = get_base64_from_path(bing_path) if has_bing else None
         
         # Debug: Save frames if something is missing
         if not (has_rating and has_bing and has_bong):
@@ -595,9 +659,13 @@ async def analyze_elements(req: AnalyzeFrameRequest):
             "rating": rating_status, 
             "bing": bing_status, 
             "bong": bong_status,
+            "brief_rating_b64": brief_rating_b64,
             "expected_rating_b64": expected_rating_b64,
+            "found_rating_b64": found_rating_b64,
             "expected_bing_b64": expected_bing_b64,
-            "expected_bong_b64": expected_bong_b64
+            "found_bing_b64": found_bing_b64,
+            "expected_bong_b64": expected_bong_b64,
+            "found_bong_b64": found_bong_b64
         }
     except HTTPException:
         raise

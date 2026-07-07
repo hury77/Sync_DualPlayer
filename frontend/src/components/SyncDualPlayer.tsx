@@ -205,9 +205,13 @@ export const SyncDualPlayer: React.FC = () => {
     rating: string, 
     bing: string, 
     bong: string, 
+    brief_rating_b64?: string | null,
     expected_rating_b64?: string | null,
+    found_rating_b64?: string | null,
     expected_bing_b64?: string | null,
+    found_bing_b64?: string | null,
     expected_bong_b64?: string | null,
+    found_bong_b64?: string | null,
     scanTime?: string
   } | null>(null);
   const [isPsQaAnalyzing, setIsPsQaAnalyzing] = useState(false);
@@ -398,6 +402,10 @@ export const SyncDualPlayer: React.FC = () => {
       let expRating: string | null = null;
       let expBing: string | null = null;
       let expBong: string | null = null;
+      let briefRating: string | null = null;
+      let foundRating: string | null = null;
+      let foundBing: string | null = null;
+      let foundBong: string | null = null;
 
       for (const res of results) {
          if (res.rating === "FOUND") finalRating = "FOUND";
@@ -415,6 +423,11 @@ export const SyncDualPlayer: React.FC = () => {
          if (res.expected_rating_b64) expRating = res.expected_rating_b64;
          if (res.expected_bing_b64) expBing = res.expected_bing_b64;
          if (res.expected_bong_b64) expBong = res.expected_bong_b64;
+         
+         if (res.brief_rating_b64) briefRating = res.brief_rating_b64;
+         if (res.found_rating_b64) foundRating = res.found_rating_b64;
+         if (res.found_bing_b64) foundBing = res.found_bing_b64;
+         if (res.found_bong_b64) foundBong = res.found_bong_b64;
       }
       
       setPsQaResults({
@@ -2876,9 +2889,37 @@ export const SyncDualPlayer: React.FC = () => {
             
             <div className={`p-4 rounded-xl border flex flex-col items-center justify-center text-center ${psQaResults ? (psQaResults.rating === 'FOUND' ? 'bg-green-50 border-green-200' : psQaResults.rating === 'INCORRECT' ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200') : 'bg-gray-50 border-gray-100'}`}>
               <span className="text-xs text-gray-500 uppercase tracking-wider mb-2 font-semibold">RATING</span>
-              {psQaResults?.expected_rating_b64 && (
+              {psQaResults?.rating === 'FOUND' && psQaResults?.expected_rating_b64 && (
                 <div className="h-12 w-full flex items-center justify-center mb-2">
-                  <img src={psQaResults.expected_rating_b64} alt="Expected RATING" className="max-h-full max-w-full object-contain mix-blend-multiply opacity-90 drop-shadow-sm" />
+                  <img src={psQaResults.expected_rating_b64} alt="Expected RATING" className="max-h-full max-w-full object-contain mix-blend-multiply opacity-90 drop-shadow-sm" title="Znaleziono poprawny rating" />
+                </div>
+              )}
+              {psQaResults && psQaResults.rating !== 'FOUND' && (
+                <div className="flex flex-row items-center justify-center gap-3 w-full mb-2">
+                  {psQaResults.brief_rating_b64 && (
+                    <div className="flex flex-col items-center">
+                      <span className="text-[9px] text-gray-500 mb-1 font-semibold uppercase tracking-wider">Brief</span>
+                      <div className="h-10 w-10 flex items-center justify-center bg-white rounded border border-gray-200 p-0.5">
+                        <img src={psQaResults.brief_rating_b64} alt="Brief Icon" className="max-h-full max-w-full object-contain mix-blend-multiply" />
+                      </div>
+                    </div>
+                  )}
+                  {psQaResults.expected_rating_b64 && (
+                    <div className="flex flex-col items-center">
+                      <span className="text-[9px] text-gray-500 mb-1 font-semibold uppercase tracking-wider">Baza</span>
+                      <div className="h-10 w-10 flex items-center justify-center bg-white rounded border border-gray-200 p-0.5">
+                        <img src={psQaResults.expected_rating_b64} alt="DB Icon" className="max-h-full max-w-full object-contain mix-blend-multiply" />
+                      </div>
+                    </div>
+                  )}
+                  {psQaResults.found_rating_b64 && (
+                    <div className="flex flex-col items-center">
+                      <span className="text-[9px] text-red-500 mb-1 font-semibold uppercase tracking-wider">Wideo</span>
+                      <div className="h-10 w-10 flex items-center justify-center bg-white rounded border border-red-200 p-0.5">
+                        <img src={psQaResults.found_rating_b64} alt="Found Icon" className="max-h-full max-w-full object-contain mix-blend-multiply" />
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
               <span className="text-sm font-medium text-gray-900">{psQaMetadata.rating}</span>
