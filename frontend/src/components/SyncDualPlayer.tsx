@@ -437,6 +437,10 @@ export const SyncDualPlayer: React.FC = () => {
         expected_rating_b64: expRating,
         expected_bing_b64: expBing,
         expected_bong_b64: expBong,
+        brief_rating_b64: briefRating,
+        found_rating_b64: foundRating,
+        found_bing_b64: foundBing,
+        found_bong_b64: foundBong,
         scanTime: scanTimeStr
       });
       
