@@ -220,6 +220,18 @@ class AnalyzeFrameRequest(BaseModel):
     country_code: Optional[str] = None
     timestamp: Optional[float] = None
 
+_image_cache = {}
+_image_cache_lock = threading.Lock()
+
+def get_cached_image(path_str):
+    with _image_cache_lock:
+        if path_str in _image_cache:
+            return _image_cache[path_str]
+        img = cv2.imread(path_str, cv2.IMREAD_UNCHANGED)
+        if img is not None:
+            _image_cache[path_str] = img
+        return img
+
 def match_template(image_np, template_path, threshold=0.8, return_score=False, force_coeff=False):
     import cv2
     if not os.path.exists(template_path):
@@ -227,7 +239,7 @@ def match_template(image_np, template_path, threshold=0.8, return_score=False, f
             return False, 0.0
         return False
         
-    template = cv2.imread(str(template_path), cv2.IMREAD_UNCHANGED)
+    template = get_cached_image(str(template_path))
     if template is None:
         if return_score:
             return False, 0.0
@@ -250,13 +262,13 @@ def match_template(image_np, template_path, threshold=0.8, return_score=False, f
     else:
         template_mask = None
         
-    # Dynamic Pass 1 scaling to support tiny scales down to 0.02 without shrinking templates below 5px
-    total_min_scale = 0.02
+    # Dynamic Pass 1 scaling to support tiny scales down to 0.05 without shrinking templates below 4px
+    total_min_scale = 0.05
     total_max_scale = 0.25
     min_template_dim = min(template.shape[0], template.shape[1])
     
     pass1_fx = 0.125
-    needed_fx = 5.0 / (min_template_dim * total_min_scale)
+    needed_fx = 4.0 / (min_template_dim * total_min_scale)
     if needed_fx > pass1_fx:
         pass1_fx = max(0.125, min(0.5, needed_fx))
         
@@ -273,12 +285,12 @@ def match_template(image_np, template_path, threshold=0.8, return_score=False, f
     best_total_scale_rough = 1.0
     best_val_rough = -1.0
     
-    # Search with 40 steps from total_min_scale to total_max_scale
-    for total_scale in np.linspace(total_min_scale, total_max_scale, 40):
+    # Search with 18 steps from total_min_scale to total_max_scale for high speed
+    for total_scale in np.linspace(total_min_scale, total_max_scale, 18):
         scale_in_tiny = total_scale / pass1_fx
         w = int(tiny_template.shape[1] * scale_in_tiny)
         h = int(tiny_template.shape[0] * scale_in_tiny)
-        if w < 5 or h < 5 or w > tiny_img.shape[1] or h > tiny_img.shape[0]: continue
+        if w < 4 or h < 4 or w > tiny_img.shape[1] or h > tiny_img.shape[0]: continue
         
         rt = cv2.resize(tiny_template, (w, h), interpolation=cv2.INTER_AREA)
         if has_alpha:
@@ -395,7 +407,7 @@ def match_brief_icon_to_db(icon_bytes: bytes, rating_folder: Path, rating_age: s
                 # Odrzucamy podwójne szablony (np. B-B15 dla B15 lub B) przez dokładne dopasowanie tokenu
                 if not any(pat in tokens for pat in age_patterns):
                     continue
-            template = cv2.imread(str(f), cv2.IMREAD_UNCHANGED)
+            template = get_cached_image(str(f))
             if template is None:
                 continue
                 
@@ -625,7 +637,7 @@ async def analyze_elements(req: AnalyzeFrameRequest):
             matched, score = match_template(img_rating, rp, return_score=True, force_coeff=True)
             if score > 0.4:
                 try:
-                    tmp_img = cv2.imread(rp, cv2.IMREAD_UNCHANGED)
+                    tmp_img = get_cached_image(rp)
                     ar = tmp_img.shape[1] / float(tmp_img.shape[0]) if tmp_img is not None else 1.0
                 except:
                     ar = 1.0
