@@ -343,7 +343,7 @@ def get_base64_from_path(path_str):
     except Exception:
         return None
 
-def match_brief_icon_to_db(icon_bytes: bytes, rating_folder: Path):
+def match_brief_icon_to_db(icon_bytes: bytes, rating_folder: Path, rating_age: str = None):
     """
     Używa algorytmu ORB do dopasowania ikony z briefu do bazy szablonów.
     Zwraca krotkę (najlepsza_sciezka, wynik_dopasowania).
@@ -373,7 +373,27 @@ def match_brief_icon_to_db(icon_bytes: bytes, rating_folder: Path):
         best_score = 0
         best_path = None
         
+        # Filtrujemy szablony po kategorii wiekowej z briefu, aby unikać podwójnych ratingów
+        age_patterns = []
+        if rating_age:
+            age_str = str(rating_age).upper()
+            age_patterns = [age_str]
+            if age_str == "T":
+                age_patterns += ["TEEN"]
+            elif age_str == "E":
+                age_patterns += ["EVERYONE"]
+            elif age_str == "M":
+                age_patterns += ["MATURE"]
+            elif age_str == "E10+":
+                age_patterns += ["E10", "EVERYONE10"]
+        
         for f in rating_folder.glob("*_cropped.png"):
+            if age_patterns:
+                base = f.name.replace('_cropped.png', '').replace('.png', '')
+                tokens = [t.upper() for t in base.split('_')]
+                # Odrzucamy podwójne szablony (np. B-B15 dla B15 lub B) przez dokładne dopasowanie tokenu
+                if not any(pat in tokens for pat in age_patterns):
+                    continue
             template = cv2.imread(str(f), cv2.IMREAD_UNCHANGED)
             if template is None:
                 continue
@@ -432,7 +452,7 @@ def get_cached_brief_data(brief_path_str: str, sheet_name: str, cv_assets_dir: P
         icon_bytes = extract_rating_icon_from_brief(brief_path_str, sheet_name)
         best_db_path = None
         if icon_bytes:
-            best_db_path, _ = match_brief_icon_to_db(icon_bytes, rating_folder)
+            best_db_path, _ = match_brief_icon_to_db(icon_bytes, rating_folder, rating_age=reqs.get("AGE"))
             
         _brief_cache[cache_key] = {
             'mtime': mtime,
