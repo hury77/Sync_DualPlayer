@@ -250,15 +250,15 @@ def match_template(image_np, template_path, threshold=0.8, return_score=False, f
     else:
         template_mask = None
         
-    # Dynamic Pass 1 scaling to support tiny scales down to 0.05 without shrinking templates below 5px
-    min_scale = 0.05
-    max_scale = 1.5
+    # Dynamic Pass 1 scaling to support tiny scales down to 0.02 without shrinking templates below 5px
+    total_min_scale = 0.02
+    total_max_scale = 0.25
     min_template_dim = min(template.shape[0], template.shape[1])
-    min_tiny_dim_at_min_scale = min_template_dim * min_scale
     
     pass1_fx = 0.125
-    if min_tiny_dim_at_min_scale * pass1_fx < 5.0:
-        pass1_fx = max(0.125, min(0.5, 5.0 / min_tiny_dim_at_min_scale))
+    needed_fx = 5.0 / (min_template_dim * total_min_scale)
+    if needed_fx > pass1_fx:
+        pass1_fx = max(0.125, min(0.5, needed_fx))
         
     if pass1_fx > 0.25:
         pass1_fx = 0.5
@@ -270,14 +270,14 @@ def match_template(image_np, template_path, threshold=0.8, return_score=False, f
     if has_alpha:
         tiny_mask = cv2.resize(template_mask, (0, 0), fx=pass1_fx, fy=pass1_fx, interpolation=cv2.INTER_AREA)
         
-    best_scale_rough = 1.0
+    best_total_scale_rough = 1.0
     best_val_rough = -1.0
     
-    # Search with finer steps if starting from very small scales
-    num_steps = 25 if min_scale < 0.15 else 14
-    for scale in np.linspace(min_scale, max_scale, num_steps):
-        w = int(tiny_template.shape[1] * scale)
-        h = int(tiny_template.shape[0] * scale)
+    # Search with 40 steps from total_min_scale to total_max_scale
+    for total_scale in np.linspace(total_min_scale, total_max_scale, 40):
+        scale_in_tiny = total_scale / pass1_fx
+        w = int(tiny_template.shape[1] * scale_in_tiny)
+        h = int(tiny_template.shape[0] * scale_in_tiny)
         if w < 5 or h < 5 or w > tiny_img.shape[1] or h > tiny_img.shape[0]: continue
         
         rt = cv2.resize(tiny_template, (w, h), interpolation=cv2.INTER_AREA)
@@ -290,7 +290,7 @@ def match_template(image_np, template_path, threshold=0.8, return_score=False, f
         _, max_val, _, _ = cv2.minMaxLoc(res)
         if max_val > best_val_rough:
             best_val_rough = max_val
-            best_scale_rough = scale
+            best_total_scale_rough = total_scale
             
     # Pass 2: Search at 0.25 scale or higher (must match Pass 1 minimum scale resolution)
     pass2_fx = max(0.25, pass1_fx)
@@ -300,12 +300,13 @@ def match_template(image_np, template_path, threshold=0.8, return_score=False, f
         small_mask = cv2.resize(template_mask, (0, 0), fx=pass2_fx, fy=pass2_fx, interpolation=cv2.INTER_AREA)
         
     best_max_val = -1.0
-    # Use a dense grid in Pass 2 to prevent integer-rounding aspect-ratio mismatches on tiny templates
-    scales_to_check = np.linspace(best_scale_rough * 0.85, best_scale_rough * 1.15, 13)
+    # Use a dense grid of 13 scales around best_total_scale_rough to prevent integer-rounding aspect-ratio mismatches
+    scales_to_check = np.linspace(best_total_scale_rough * 0.85, best_total_scale_rough * 1.15, 13)
     
-    for scale in scales_to_check:
-        w = int(small_template.shape[1] * scale)
-        h = int(small_template.shape[0] * scale)
+    for total_scale in scales_to_check:
+        scale_in_small = total_scale / pass2_fx
+        w = int(small_template.shape[1] * scale_in_small)
+        h = int(small_template.shape[0] * scale_in_small)
         if w < 10 or h < 10 or w > small_image.shape[1] or h > small_image.shape[0]: continue
         
         rt = cv2.resize(small_template, (w, h), interpolation=cv2.INTER_AREA)
