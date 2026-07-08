@@ -408,8 +408,8 @@ export const SyncDualPlayer: React.FC = () => {
       let foundBong: string | null = null;
 
       for (const res of results) {
-         if (res.rating === "FOUND") finalRating = "FOUND";
-         else if (res.rating === "INCORRECT" && finalRating !== "FOUND") finalRating = "INCORRECT";
+         if (res.rating === "INCORRECT") finalRating = "INCORRECT";
+         else if (res.rating === "FOUND" && finalRating !== "INCORRECT") finalRating = "FOUND";
 
          if (res.bing === "FOUND") finalBing = "FOUND";
          else if (res.bing === "INCORRECT" && finalBing !== "FOUND") finalBing = "INCORRECT";
@@ -2899,27 +2899,27 @@ export const SyncDualPlayer: React.FC = () => {
                 </div>
               )}
               {psQaResults && psQaResults.rating !== 'FOUND' && (
-                <div className="flex flex-row items-center justify-center gap-3 w-full mb-2">
+                <div className="flex flex-row items-start justify-center gap-4 w-full mb-3">
                   {psQaResults.brief_rating_b64 && (
                     <div className="flex flex-col items-center">
-                      <span className="text-[9px] text-gray-500 mb-1 font-semibold uppercase tracking-wider">Brief</span>
-                      <div className="h-10 w-10 flex items-center justify-center bg-white rounded border border-gray-200 p-0.5">
+                      <span className="text-[10px] text-gray-500 mb-1.5 font-bold uppercase tracking-wider">Brief</span>
+                      <div className="h-20 w-20 flex items-center justify-center bg-white rounded-md border border-gray-200 p-1.5 shadow-sm">
                         <img src={psQaResults.brief_rating_b64} alt="Brief Icon" className="max-h-full max-w-full object-contain mix-blend-multiply" />
                       </div>
                     </div>
                   )}
                   {psQaResults.expected_rating_b64 && (
                     <div className="flex flex-col items-center">
-                      <span className="text-[9px] text-gray-500 mb-1 font-semibold uppercase tracking-wider">Baza</span>
-                      <div className="h-10 w-10 flex items-center justify-center bg-white rounded border border-gray-200 p-0.5">
+                      <span className="text-[10px] text-gray-500 mb-1.5 font-bold uppercase tracking-wider">Baza</span>
+                      <div className="h-20 w-20 flex items-center justify-center bg-white rounded-md border border-gray-200 p-1.5 shadow-sm">
                         <img src={psQaResults.expected_rating_b64} alt="DB Icon" className="max-h-full max-w-full object-contain mix-blend-multiply" />
                       </div>
                     </div>
                   )}
                   {psQaResults.found_rating_b64 && (
                     <div className="flex flex-col items-center">
-                      <span className="text-[9px] text-red-500 mb-1 font-semibold uppercase tracking-wider">Wideo</span>
-                      <div className="h-10 w-10 flex items-center justify-center bg-white rounded border border-red-200 p-0.5">
+                      <span className="text-[10px] text-red-600 mb-1.5 font-bold uppercase tracking-wider">Wideo</span>
+                      <div className="h-20 w-20 flex items-center justify-center bg-white rounded-md border border-red-300 p-1.5 shadow-sm">
                         <img src={psQaResults.found_rating_b64} alt="Found Icon" className="max-h-full max-w-full object-contain mix-blend-multiply" />
                       </div>
                     </div>

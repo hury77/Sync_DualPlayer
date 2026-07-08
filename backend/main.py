@@ -15,6 +15,7 @@ import imageio_ffmpeg
 import cv2
 import numpy as np
 import base64
+import threading
 from pydantic import BaseModel
 from typing import List, Optional
 import pandas as pd
@@ -219,7 +220,7 @@ class AnalyzeFrameRequest(BaseModel):
     country_code: Optional[str] = None
     timestamp: Optional[float] = None
 
-def match_template(image_np, template_path, threshold=0.8, return_score=False):
+def match_template(image_np, template_path, threshold=0.8, return_score=False, force_coeff=False):
     import cv2
     if not os.path.exists(template_path):
         if return_score:
@@ -234,10 +235,18 @@ def match_template(image_np, template_path, threshold=0.8, return_score=False):
         
     has_alpha = False
     if len(template.shape) == 3 and template.shape[2] == 4:
-        has_alpha = True
-        template_mask = template[:, :, 3]
-        template = cv2.cvtColor(template, cv2.COLOR_BGRA2BGR)
-        threshold = max(threshold, 0.75) # CCORR_NORMED can be more generous, so bump threshold
+        if force_coeff:
+            alpha = template[:, :, 3:4] / 255.0
+            bgr = template[:, :, :3]
+            gray_tmpl = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+            bg_color = 255 if gray_tmpl.mean() > 127 else 0
+            template = (bgr * alpha + np.ones_like(bgr) * bg_color * (1 - alpha)).astype(np.uint8)
+            template_mask = None
+        else:
+            has_alpha = True
+            template_mask = template[:, :, 3]
+            template = cv2.cvtColor(template, cv2.COLOR_BGRA2BGR)
+            threshold = max(threshold, 0.75) # CCORR_NORMED can be more generous, so bump threshold
     else:
         template_mask = None
         
@@ -249,7 +258,6 @@ def match_template(image_np, template_path, threshold=0.8, return_score=False):
         
     best_scale_rough = 1.0
     best_val_rough = 0
-    import numpy as np
     
     # Search from 0.2 to 1.5 in 14 steps (very fast at 1/8th scale)
     for scale in np.linspace(0.2, 1.5, 14):
@@ -385,6 +393,39 @@ def match_brief_icon_to_db(icon_bytes: bytes, rating_folder: Path):
         print(f"Błąd podczas match_brief_icon_to_db: {e}")
         return None, 0
 
+_brief_cache = {}
+_brief_cache_lock = threading.Lock()
+
+def get_cached_brief_data(brief_path_str: str, sheet_name: str, cv_assets_dir: Path):
+    cache_key = f"{brief_path_str}_{sheet_name}"
+    mtime = os.path.getmtime(brief_path_str) if os.path.exists(brief_path_str) else 0
+    
+    with _brief_cache_lock:
+        if cache_key in _brief_cache and _brief_cache[cache_key]['mtime'] == mtime:
+            return _brief_cache[cache_key]['reqs'], _brief_cache[cache_key]['icon_bytes'], _brief_cache[cache_key]['best_db_path']
+        
+        reqs = get_requirements_from_brief(brief_path_str, sheet_name)
+        
+        # Calculate rating folder here
+        rating_org = reqs.get("RATING", "PEGI")
+        RATING_ORG_MAP = {"SEGOB": "MX", "CLASSIND": "BR", "GRAC": "KR", "OFLC": "AUS"}
+        mapped_org = RATING_ORG_MAP.get(rating_org.upper(), rating_org)
+        rating_folder = cv_assets_dir / "RATINGS" / mapped_org
+        
+        icon_bytes = extract_rating_icon_from_brief(brief_path_str, sheet_name)
+        best_db_path = None
+        if icon_bytes:
+            best_db_path, _ = match_brief_icon_to_db(icon_bytes, rating_folder)
+            
+        _brief_cache[cache_key] = {
+            'mtime': mtime,
+            'reqs': reqs,
+            'icon_bytes': icon_bytes,
+            'best_db_path': best_db_path
+        }
+        
+        return reqs, icon_bytes, best_db_path
+
 @app.post("/api/v1/analyze-elements")
 async def analyze_elements(req: AnalyzeFrameRequest):
     import time
@@ -409,48 +450,38 @@ async def analyze_elements(req: AnalyzeFrameRequest):
         dim_map = {"1080x1080": "1x1", "1920x1080": "16x9", "1080x1920": "9x16", "4K": "16x9"}
         bong_dim = dim_map.get(dimension, "16x9")
             
-        # 2. Parsowanie Briefu by poznać wymagania
+        # 2. Parsowanie Briefu i Cache
         brief_path = str(UPLOAD_DIR / "current_brief.xlsx")
         if not os.path.exists(brief_path):
             raise HTTPException(status_code=400, detail="Błąd krytyczny QA: Brak wgranego Briefu! Wgraj najpierw plik LOC Brief (.xlsx).")
             
+        cv_assets_dir = Path("/Volumes/PL-EGplusww/Administrative and corporate files/DEPARTMENTS/QA/VITO/CV_Assets")
+        if not cv_assets_dir.exists():
+            cv_assets_dir = Path("/Users/hubert.rycaj/Documents/PS_elements/CV_Assets")
+            
+        sheet_name = lang_code if "-" in lang_code else f"{lang_code}-{lang_code}"
+        
+        # Get everything from cache
         try:
-            # W briefie zakładki mają nazwy np. PL-PL, a z pliku wyciągamy np. PL (lub SE-SV)
-            # Próbujemy znaleźć dopasowanie w Briefie. Dla testów jeśli kod ma 2 litery, dodajemy resztę np. PL -> PL-PL.
-            sheet_name = lang_code if "-" in lang_code else f"{lang_code}-{lang_code}"
-            reqs = get_requirements_from_brief(brief_path, sheet_name)
+            reqs, icon_bytes, best_db_path = get_cached_brief_data(brief_path, sheet_name, cv_assets_dir)
         except ParserError as e:
             raise HTTPException(status_code=400, detail=str(e))
             
-        # 3. Budowanie ścieżek do bazy na VITO
-        cv_assets_dir = Path("/Volumes/PL-EGplusww/Administrative and corporate files/DEPARTMENTS/QA/VITO/CV_Assets")
-        if not cv_assets_dir.exists():
-            # Awaryjny fallback na lokalny dysk, jeśli dysk sieciowy nie jest podłączony
-            cv_assets_dir = Path("/Users/hubert.rycaj/Documents/PS_elements/CV_Assets")
-            
         rating_org = reqs.get("RATING", "PEGI")
+        RATING_ORG_MAP = {"SEGOB": "MX", "CLASSIND": "BR", "GRAC": "KR", "OFLC": "AUS"}
+        mapped_org = RATING_ORG_MAP.get(rating_org.upper(), rating_org)
+        rating_folder = cv_assets_dir / "RATINGS" / mapped_org
+            
         rating_age = reqs.get("AGE", "18")
         bong_type = reqs.get("BONG", "Standard")
         bing_type = reqs.get("BING", "Standard")
         
-        # Rating path logic
-        RATING_ORG_MAP = {
-            "SEGOB": "MX",
-            "CLASSIND": "BR",
-            "GRAC": "KR",
-            "OFLC": "AUS"
-        }
-        mapped_org = RATING_ORG_MAP.get(rating_org.upper(), rating_org)
-        rating_folder = cv_assets_dir / "RATINGS" / mapped_org
         rating_paths_to_check = []
         brief_rating_b64 = None
         
         # 1. Próba wyciągnięcia i dopasowania ikony z briefu
-        icon_bytes = extract_rating_icon_from_brief(brief_path, sheet_name)
         if icon_bytes:
-            import base64
             brief_rating_b64 = "data:image/png;base64," + base64.b64encode(icon_bytes).decode("utf-8")
-            best_db_path, orb_score = match_brief_icon_to_db(icon_bytes, rating_folder)
             if best_db_path:
                 rating_paths_to_check = [best_db_path]
                 
@@ -542,6 +573,10 @@ async def analyze_elements(req: AnalyzeFrameRequest):
         is_start = req.timestamp is None or req.timestamp <= 4.0
         is_end = req.timestamp is None or req.timestamp >= 10.0
         
+        # Ogranicz obszar poszukiwań ratingu do dolnej połowy ekranu (wyklucza logo PS Studio, itp.)
+        h_orig = img_np.shape[0]
+        img_rating = img_np[int(h_orig * 0.5):, :]
+        
         best_allowed_score = 0
         best_allowed_path = None
         has_rating = False
@@ -549,8 +584,8 @@ async def analyze_elements(req: AnalyzeFrameRequest):
         # Testujemy wszystkie dozwolone szablony
         allowed_results = []
         for rp in rating_paths_to_check:
-            matched, score = match_template(img_np, rp, return_score=True)
-            if score > 0.5:
+            matched, score = match_template(img_rating, rp, return_score=True, force_coeff=True)
+            if score > 0.4:
                 try:
                     tmp_img = cv2.imread(rp, cv2.IMREAD_UNCHANGED)
                     ar = tmp_img.shape[1] / float(tmp_img.shape[0]) if tmp_img is not None else 1.0
@@ -565,39 +600,76 @@ async def analyze_elements(req: AnalyzeFrameRequest):
             
             # Prefer vertical/square generic templates over wide templates with descriptors if scores are close
             for score, ar, rp in allowed_results:
-                if score >= best_allowed_score - 0.12 and score >= 0.75:
+                if score >= best_allowed_score - 0.12 and score >= 0.65:
                     if ar <= 1.25 and allowed_results[0][1] > 1.4:
                         best_allowed_score = score
                         best_allowed_path = rp
                         break
                 
-        # Zbieramy generyczne szablony do testu rezerwowego
-        best_generic_score = 0
-        best_generic_path = None
-        
-        if rating_folder.exists() and is_start:
-            generic_paths = [str(p) for p in rating_folder.glob("*_cropped.png") if ("_M_" in p.name or "_T_" in p.name or "_E_" in p.name or "18" in p.name or "16" in p.name or "12" in p.name)]
-            for gp in generic_paths[:10]:
-                if gp in rating_paths_to_check:
-                    continue
-                matched, score = match_template(img_np, gp, return_score=True)
-                if score > best_generic_score:
-                    best_generic_score = score
-                    best_generic_path = gp
-
-        # Konkurencja między poprawnym a niepoprawnym (ale podobnym wizualnie) znakiem
-        if best_allowed_score >= 0.8:
-            if best_generic_score > best_allowed_score + 0.02:
-                # Generyczny pasuje zauważalnie lepiej (np. 0.98 vs 0.85)
-                rating_status = "INCORRECT"
-                has_rating = False
-                rating_path_used = best_generic_path
-            else:
-                rating_status = "FOUND"
-                has_rating = True
-                rating_path_used = best_allowed_path
+        # Zmieniony próg dla TM_CCOEFF_NORMED (z 0.8 na 0.72)
+        # Zmieniony próg dla TM_CCOEFF_NORMED (z 0.8 na 0.72)
+        if best_allowed_score >= 0.72:
+            rating_status = "FOUND"
+            has_rating = True
+            rating_path_used = best_allowed_path
+            
+            # Weryfikacja wariantu: sprawdź czy inny szablon tego samego typu
+            # nie pasuje lepiej (np. angielski zamiast francuskiego)
+            if is_start and len(rating_paths_to_check) == 1:
+                best_competitor_score = 0
+                best_competitor_path = None
+                
+                exp_name = os.path.basename(best_allowed_path).upper()
+                exp_is_fr_sp = any(x in exp_name for x in ["FR", "FRENCH", "CA", "BILINGUAL", "SP", "SPANISH", "LATAM"])
+                
+                # Przeszukujemy szablony z bazy o tej samej kategorii wiekowej
+                age_str = str(rating_age).upper()
+                age_patterns = [age_str]
+                if age_str == "T":
+                    age_patterns += ["TEEN"]
+                elif age_str == "E":
+                    age_patterns += ["EVERYONE"]
+                elif age_str == "M":
+                    age_patterns += ["MATURE"]
+                elif age_str == "E10+":
+                    age_patterns += ["E10", "EVERYONE10"]
+                
+                for f in rating_folder.glob("*_cropped.png"):
+                    comp_name = f.name.upper()
+                    if comp_name == exp_name:
+                        continue
+                        
+                    # Dopasuj tylko szablony tej samej kategorii wiekowej
+                    if not any(pat in comp_name for pat in age_patterns):
+                        continue
+                        
+                    comp_is_fr_sp = any(x in comp_name for x in ["FR", "FRENCH", "CA", "BILINGUAL", "SP", "SPANISH", "LATAM"])
+                    # Porównujemy tylko warianty obcojęzyczne (np. FR vs EN)
+                    if exp_is_fr_sp != comp_is_fr_sp:
+                        _, c_score = match_template(img_rating, str(f), return_score=True, force_coeff=True)
+                        if c_score > best_competitor_score:
+                            best_competitor_score = c_score
+                            best_competitor_path = str(f)
+                
+                if best_competitor_score > best_allowed_score + 0.05:
+                    rating_status = "INCORRECT"
+                    has_rating = False
+                    rating_path_used = best_competitor_path
         else:
-            if best_generic_score >= 0.8:
+            # Nie znaleziono oczekiwanego - szukamy jakiegokolwiek innego, by zgłosić INCORRECT
+            best_generic_score = 0
+            best_generic_path = None
+            if rating_folder.exists() and is_start:
+                generic_paths = [str(p) for p in rating_folder.glob("*_cropped.png") if ("_M_" in p.name or "_T_" in p.name or "_E_" in p.name or "18" in p.name or "16" in p.name or "12" in p.name)]
+                for gp in generic_paths[:10]:
+                    if gp in rating_paths_to_check:
+                        continue
+                    matched, score = match_template(img_rating, gp, return_score=True, force_coeff=True)
+                    if score > best_generic_score:
+                        best_generic_score = score
+                        best_generic_path = gp
+            
+            if best_generic_score >= 0.72:
                 rating_status = "INCORRECT"
                 has_rating = False
                 rating_path_used = best_generic_path
