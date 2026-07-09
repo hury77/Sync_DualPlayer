@@ -262,15 +262,15 @@ def match_template(image_np, template_path, threshold=0.8, return_score=False, f
     else:
         template_mask = None
         
-    # Dynamic Pass 1 scaling to support tiny scales down to min_scale without shrinking templates below 4px
+    # Dynamic Pass 1 scaling to support tiny scales down to min_scale without shrinking templates below 10px
     total_min_scale = min_scale
     total_max_scale = max_scale
     min_template_dim = min(template.shape[0], template.shape[1])
     
+    min_tiny_dim_at_min_scale = min_template_dim * total_min_scale
     pass1_fx = 0.125
-    needed_fx = 4.0 / (min_template_dim * total_min_scale)
-    if needed_fx > pass1_fx:
-        pass1_fx = max(0.125, min(0.5, needed_fx))
+    if min_tiny_dim_at_min_scale * pass1_fx < 10.0:
+        pass1_fx = max(0.125, min(0.5, 10.0 / min_tiny_dim_at_min_scale))
         
     if pass1_fx > 0.25:
         pass1_fx = 0.5
@@ -289,7 +289,7 @@ def match_template(image_np, template_path, threshold=0.8, return_score=False, f
     for total_scale in np.linspace(total_min_scale, total_max_scale, 18):
         w = int(tiny_template.shape[1] * total_scale)
         h = int(tiny_template.shape[0] * total_scale)
-        if w < 4 or h < 4 or w > tiny_img.shape[1] or h > tiny_img.shape[0]: continue
+        if w < 10 or h < 10 or w > tiny_img.shape[1] or h > tiny_img.shape[0]: continue
         
         rt = cv2.resize(tiny_template, (w, h), interpolation=cv2.INTER_AREA)
         if has_alpha:
@@ -317,7 +317,7 @@ def match_template(image_np, template_path, threshold=0.8, return_score=False, f
     for total_scale in scales_to_check:
         w = int(small_template.shape[1] * total_scale)
         h = int(small_template.shape[0] * total_scale)
-        if w < 4 or h < 4 or w > small_image.shape[1] or h > small_image.shape[0]: continue
+        if w < 10 or h < 10 or w > small_image.shape[1] or h > small_image.shape[0]: continue
         
         rt = cv2.resize(small_template, (w, h), interpolation=cv2.INTER_AREA)
         if has_alpha:
