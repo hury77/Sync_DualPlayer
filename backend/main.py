@@ -289,7 +289,7 @@ def match_template(image_np, template_path, threshold=0.8, return_score=False, f
     for total_scale in np.linspace(total_min_scale, total_max_scale, 18):
         w = int(tiny_template.shape[1] * total_scale)
         h = int(tiny_template.shape[0] * total_scale)
-        if w < 4 or h < 4 or w > tiny_img.shape[1] or h > tiny_img.shape[0]: continue
+        if w < 10 or h < 10 or w > tiny_img.shape[1] or h > tiny_img.shape[0]: continue
         
         rt = cv2.resize(tiny_template, (w, h), interpolation=cv2.INTER_AREA)
         if has_alpha:
@@ -533,6 +533,44 @@ async def analyze_elements(req: AnalyzeFrameRequest):
             if best_db_path:
                 rating_paths_to_check = [best_db_path]
                 
+                # Dodaj powiązane szablony o tym samym wieku i pasującym do wideo formacie (np. 9x16 lub 1x1)
+                video_ar = "16x9"
+                if req.filename:
+                    fname = req.filename.upper()
+                    if "9X16" in fname or "9:16" in fname or "1080X1920" in fname:
+                        video_ar = "9x16"
+                    elif "1X1" in fname or "1:1" in fname or "1080X1080" in fname:
+                        video_ar = "1x1"
+                
+                age_str = str(rating_age).upper()
+                age_patterns = [age_str]
+                if age_str == "T": age_patterns += ["TEEN"]
+                elif age_str == "E": age_patterns += ["EVERYONE"]
+                
+                if rating_folder.exists():
+                    for f in rating_folder.glob("*_cropped.png"):
+                        comp_name = f.name.upper()
+                        if not any(pat in comp_name for pat in age_patterns):
+                            continue
+                        
+                        base = f.name.replace('_cropped.png', '').replace('.png', '')
+                        tokens = [t.upper() for t in base.split('_')]
+                        
+                        age_patterns_tokens = [str(x).upper() for x in age_patterns]
+                        if not any(pat in tokens for pat in age_patterns_tokens):
+                            continue
+                            
+                        matches_ar = False
+                        if video_ar == "9x16" and "9X16" in comp_name:
+                            matches_ar = True
+                        elif video_ar == "1x1" and "1X1" in comp_name:
+                            matches_ar = True
+                        elif video_ar == "16x9" and ("16X9" in comp_name or "4K" in comp_name or not any(x in comp_name for x in ["9X16", "1X1"])):
+                            matches_ar = True
+                            
+                        if matches_ar and str(f) not in rating_paths_to_check:
+                            rating_paths_to_check.append(str(f))
+                
         # 2. Fallback na tekstowe wyszukiwanie, jeśli ikony brak lub ORB nie dopasował
         if not rating_paths_to_check and rating_folder.exists():
             for f in rating_folder.glob("*_cropped.png"):
@@ -621,9 +659,19 @@ async def analyze_elements(req: AnalyzeFrameRequest):
         is_start = req.timestamp is None or req.timestamp <= 4.0
         is_end = req.timestamp is None or req.timestamp >= 10.0
         
-        # Ogranicz obszar poszukiwań ratingu do dolnej połowy ekranu (wyklucza logo PS Studio, itp.)
-        h_orig = img_np.shape[0]
-        img_rating = img_np[int(h_orig * 0.5):, :]
+        # Ogranicz obszar poszukiwań ratingu do dolnej połowy ekranu dla poziomego wideo (16x9).
+        # Dla pionowego (9x16) lub kwadratowego (1x1) przeszukujemy cały ekran, gdyż rating może być na środku.
+        is_vertical_or_square = False
+        if req.filename:
+            fname = req.filename.upper()
+            if any(x in fname for x in ["9X16", "9:16", "1080X1920", "1X1", "1:1", "1080X1080"]):
+                is_vertical_or_square = True
+                
+        if is_vertical_or_square:
+            img_rating = img_np
+        else:
+            h_orig = img_np.shape[0]
+            img_rating = img_np[int(h_orig * 0.5):, :]
         
         best_allowed_score = 0
         best_allowed_path = None
@@ -632,7 +680,14 @@ async def analyze_elements(req: AnalyzeFrameRequest):
         # Testujemy wszystkie dozwolone szablony
         allowed_results = []
         for rp in rating_paths_to_check:
-            matched, score = match_template(img_rating, rp, return_score=True, force_coeff=True, min_scale=0.05, max_scale=0.25)
+            try:
+                tmp_img = get_cached_image(rp)
+                th = tmp_img.shape[0] if tmp_img is not None else 800
+            except:
+                th = 800
+            min_sc = max(0.02, 40.0 / th)
+            max_sc = min(1.5, 300.0 / th)
+            matched, score = match_template(img_rating, rp, return_score=True, force_coeff=True, min_scale=min_sc, max_scale=max_sc)
             if score > 0.4:
                 try:
                     tmp_img = get_cached_image(rp)
@@ -694,7 +749,14 @@ async def analyze_elements(req: AnalyzeFrameRequest):
                     comp_is_fr_sp = any(x in comp_name for x in ["FR", "FRENCH", "CA", "BILINGUAL", "SP", "SPANISH", "LATAM"])
                     # Porównujemy tylko warianty obcojęzyczne (np. FR vs EN)
                     if exp_is_fr_sp != comp_is_fr_sp:
-                        _, c_score = match_template(img_rating, str(f), return_score=True, force_coeff=True, min_scale=0.05, max_scale=0.25)
+                        try:
+                            tmp_img = get_cached_image(str(f))
+                            th = tmp_img.shape[0] if tmp_img is not None else 800
+                        except:
+                            th = 800
+                        min_sc = max(0.02, 40.0 / th)
+                        max_sc = min(1.5, 300.0 / th)
+                        _, c_score = match_template(img_rating, str(f), return_score=True, force_coeff=True, min_scale=min_sc, max_scale=max_sc)
                         if c_score > best_competitor_score:
                             best_competitor_score = c_score
                             best_competitor_path = str(f)
@@ -712,7 +774,14 @@ async def analyze_elements(req: AnalyzeFrameRequest):
                 for gp in generic_paths[:10]:
                     if gp in rating_paths_to_check:
                         continue
-                    matched, score = match_template(img_rating, gp, return_score=True, force_coeff=True, min_scale=0.05, max_scale=0.25)
+                    try:
+                        tmp_img = get_cached_image(gp)
+                        th = tmp_img.shape[0] if tmp_img is not None else 800
+                    except:
+                        th = 800
+                    min_sc = max(0.02, 40.0 / th)
+                    max_sc = min(1.5, 300.0 / th)
+                    matched, score = match_template(img_rating, gp, return_score=True, force_coeff=True, min_scale=min_sc, max_scale=max_sc)
                     if score > best_generic_score:
                         best_generic_score = score
                         best_generic_path = gp
