@@ -3033,7 +3033,7 @@ export const SyncDualPlayer: React.FC = () => {
           } ${isSinglePlayerMode ? "max-w-[90%] mx-auto w-full" : ""}`}
         >
           {/* Header Panel */}
-          <div className={`px-6 py-4 border-b border-gray-100 flex justify-between items-center ${
+          <div className={`px-6 py-2 border-b border-gray-100 flex justify-between items-center h-[76px] ${
             isSinglePlayerMode ? 'bg-purple-50/50' : 'bg-green-50/50'
           }`}>
             <div>
@@ -3193,7 +3193,7 @@ export const SyncDualPlayer: React.FC = () => {
           }`}
         >
           {/* Header Panel */}
-          <div className="px-6 py-4 border-b border-gray-100 bg-red-50/50 flex justify-between items-center">
+          <div className="px-6 py-2 border-b border-gray-100 bg-red-50/50 flex justify-between items-center h-[76px]">
             <div>
               <h3 className="font-semibold text-red-800">Emission</h3>
               {emissionFile && (
