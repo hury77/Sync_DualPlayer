@@ -289,7 +289,7 @@ def match_template(image_np, template_path, threshold=0.8, return_score=False, f
     for total_scale in np.linspace(total_min_scale, total_max_scale, 18):
         w = int(tiny_template.shape[1] * total_scale)
         h = int(tiny_template.shape[0] * total_scale)
-        if w < 10 or h < 10 or w > tiny_img.shape[1] or h > tiny_img.shape[0]: continue
+        if w < 4 or h < 4 or w > tiny_img.shape[1] or h > tiny_img.shape[0]: continue
         
         rt = cv2.resize(tiny_template, (w, h), interpolation=cv2.INTER_AREA)
         if has_alpha:
@@ -317,7 +317,7 @@ def match_template(image_np, template_path, threshold=0.8, return_score=False, f
     for total_scale in scales_to_check:
         w = int(small_template.shape[1] * total_scale)
         h = int(small_template.shape[0] * total_scale)
-        if w < 10 or h < 10 or w > small_image.shape[1] or h > small_image.shape[0]: continue
+        if w < 4 or h < 4 or w > small_image.shape[1] or h > small_image.shape[0]: continue
         
         rt = cv2.resize(small_template, (w, h), interpolation=cv2.INTER_AREA)
         if has_alpha:
@@ -718,7 +718,7 @@ async def analyze_elements(req: AnalyzeFrameRequest):
             
             # Weryfikacja wariantu: sprawdź czy inny szablon tego samego typu
             # nie pasuje lepiej (np. angielski zamiast francuskiego)
-            if is_start and len(rating_paths_to_check) == 1:
+            if is_start and len(rating_paths_to_check) <= 1:
                 best_competitor_score = 0
                 best_competitor_path = None
                 
