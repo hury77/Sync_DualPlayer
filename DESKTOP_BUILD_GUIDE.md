@@ -1,83 +1,107 @@
-# Architektura Standalone (Local Desktop App)
+# Architektura Standalone (Lokalna Aplikacja Desktopowa macOS) oraz Procedura QA
 
-Ten dokument opisuje wzorzec projektowy użyty do przekształcenia webowej aplikacji React + FastAPI w lokalną, samodzielną aplikację pulpitową dla systemu macOS (`.app`). Wzorzec ten można łatwo replikować dla innych narzędzi.
-
-## Główne założenia
-
-Aplikacja standalone składa się z trzech ściśle zintegrowanych warstw:
-1. **Skompilowany Frontend (React):** Zbudowana wersja statyczna (HTML, JS, CSS) serwowana lokalnie bez potrzeby uruchamiania serwera Node.js.
-2. **Lekki Backend (FastAPI):** Pythonowy serwer uruchamiany lokalnie na dedykowanym porcie, pełniący rolę zarówno API, jak i serwera plików statycznych dla frontendu.
-3. **Wrapper Systemowy (macOS .app):** Struktura katalogów oszukująca system macOS, sprawiająca, że zestaw skryptów wygląda i zachowuje się jak natywna aplikacja okienkowa.
+Ten dokument opisuje architekturę i procedurę budowania lokalnej, samodzielnej aplikacji desktopowej macOS (`.app` / `.dmg`) oraz listę kontrolną weryfikacji przed udostępnieniem jej zespołowi.
 
 ---
 
-## Krok 1: Przygotowanie Lekkiego Backendu
-Zamiast korzystać z głównego, skomplikowanego backendu z bazą danych, tworzymy dedykowany, minimalny plik np. `server.py` w nowym katalogu `backend/`.
+## 1. Główne Założenia i Architektura
 
-**Wymagania dla Lekkiego Backendu:**
-- **Serwowanie Statyczne:** Musi potrafić zaserwować pliki skompilowanego frontendu (`index.html` oraz foldery `static/`). W FastAPI używamy do tego `StaticFiles` i specjalnej trasy catch-all dla frontendu.
-- **CORS:** Skonfigurowany Middleware CORS pozwalający na zapytania z `localhost` i `127.0.0.1`.
-- **Lokalny Port:** Aplikacja powinna uruchamiać się na unikalnym, wysokim porcie (np. `8080` lub `8005`), aby nie kolidować z głównymi usługami środowiska (8001/8002).
-- **Zależności:** Powinna posiadać własny plik `requirements.txt` ze zredukowaną listą paczek, by instalacja trwała krótko.
+Aplikacja standalone składa się z czterech zintegrowanych warstw:
+1. **Skompilowany Frontend (React):** Statyczny build (HTML, JS, CSS) serwowany bezpośrednio przez backend.
+2. **Lekki Backend (FastAPI):** Pythonowy serwer uvicorn działający lokalnie na porcie `8080`, obsługujący API i serwowanie plików frontendu.
+3. **Natywny Wrapper Binarny (C / Mach-O Universal Binary):** 
+   Natywna, skompilowana w C aplikacja konsolidująca, stanowiąca główny punkt wejściowy (`CFBundleExecutable`). Wspiera architektury Apple Silicon (`arm64`) oraz Intel (`x86_64`).
+4. **Metadane Uprawnień (`Info.plist`):** 
+   Konfiguracja TCC (Transparency, Consent, and Control) określająca cel dostępu do plików systemowych i sieciowych.
 
-## Krok 2: Adaptacja i Kompilacja Frontendu
-Frontend webowy wymaga dostosowania, zanim zostanie "zamknięty" w aplikacji standalone.
-
-- **Relatywne Ścieżki API:** Kod frontendowy musi umieć wykryć, że działa lokalnie. URL do API powinien wskazywać na port, na którym działa lekki backend (np. `http://localhost:8080`). Zamiast polegać na zmiennych `.env` przy budowaniu, aplikacja może dynamicznie określać adres na podstawie `window.location.hostname`.
-- **Budowanie:** Wykonujemy `npm run build` w projekcie React.
-- **Integracja:** Kopiujemy całą zawartość wygenerowanego folderu `build/` do katalogu dostępnego dla serwera statycznego w kroku 1.
-
-## Krok 3: Budowa Wrappera `.app` (macOS)
-To kluczowy krok, który zamienia skrypty w "klikalną" aplikację. Struktura musi wyglądać następująco:
-
-```text
-MojaAplikacja.app/
+```
+Sync_DualPlayer.app/
 └── Contents/
-    ├── Info.plist
+    ├── Info.plist               <-- Deklaracje uprawnień TCC (Dysk Sieciowy/Dokumenty)
     ├── Resources/
-    │   └── icon.icns
+    │   └── icon.icns            <-- Ikona wyświetlana w Docku oraz Finderze
     └── MacOS/
-        ├── launch.command  <-- Skrypt główny (EntryPoint)
-        └── src/            <-- Nasz backend i frontend
+        ├── Sync_DualPlayer      <-- Skompilowany wrapper binarny w C (Mach-O)
+        ├── Sync_DualPlayer_run.sh <-- Główny skrypt bash (konfiguruje venv, odpala uvicorn)
+        └── src/                 <-- Pliki źródłowe backendu i frontendu
 ```
 
-### 3.1 Skrypt Uruchomieniowy (`launch.command`)
-Ten plik bashowy to serce aplikacji. Jego zadania to:
-1. Pobranie bezwzględnej ścieżki do swojego katalogu (`DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"`).
-2. Sprawdzenie, czy zainstalowany jest Python 3.
-3. Utworzenie i aktywacja wirtualnego środowiska (`venv`), aby nie śmiecić w systemie globalnym.
-4. Pobranie opcjonalnych binariów systemowych, jeśli aplikacja ich wymaga (np. `ffmpeg` z użyciem `curl` i `unzip`).
-5. Instalacja zależności (`pip install -r requirements.txt`).
-6. Uruchomienie serwera FastAPI (`uvicorn server:app`) w tle.
-7. Otwarcie domyślnej przeglądarki użytkownika, wskazującej na uruchomiony lokalny port (`open "http://localhost:8080"`).
-8. Posiadanie pętli przechwytującej sygnały (np. `trap 'kill $UVICORN_PID' EXIT`), która grzecznie zamknie serwer w tle, gdy użytkownik zamknie okno terminala aplikacji.
-9. **Krytyczne:** Plik `launch.command` musi mieć nadane prawa wykonywania (`chmod +x`).
+---
 
-### 3.2 Metadane (`Info.plist`)
-Prosty plik XML definiujący aplikację dla systemu operacyjnego. Musi wskazywać na `launch.command` jako `CFBundleExecutable`.
-Ważne atrybuty:
-- `CFBundleName` (Nazwa aplikacji)
-- `CFBundleIconFile` (Nazwa pliku z ikoną z folderu Resources)
-- `CFBundleIdentifier` (np. `com.cradle.mojaaplikacja`)
+## 2. Rozwiązanie Problemu Uprawnień macOS (TCC & Sandboxing)
 
-### 3.3 Dystrybucja
-Gotowy katalog `.app` kompresujemy do `.zip` przed wysłaniem użytkownikowi, co zabezpiecza strukturę katalogów i prawa wykonywania przed uszkodzeniem. Ewentualnie budujemy obraz `.dmg` używając narzędzia `hdiutil`.
+Głównym problemem środowisk opartych wyłącznie na skryptach shellowych wewnątrz paczek `.app` uruchamianych z poziomu Findera jest **ciche blokowanie dostępu do zasobów zewnętrznych** (np. `/Volumes/PL-EGplusww/`). macOS ze względów bezpieczeństwa nie wyświetla dla skryptów bashowych okien zapytania o uprawnienia i blokuje ich operacje dyskowe.
 
-## Krok 4: Mechanizm Automatycznych Aktualizacji (Auto-Update Checker)
-Aplikacja została wyposażona w inteligentny skrypt sprawdzający dostępność nowych wersji z ustalonego dysku sieciowego korporacji. Działa to w całości wewnątrz skryptu `launch.command` bez uciążliwego backendu.
-
-**Zasada działania:**
-1. Podczas budowania przez `build_dmg.sh`, do folderu aplikacji dodawany jest plik `version.txt` (np. z tekstem `2.0`).
-2. Przy starcie, aplikacja z cicha podłącza się do dysku: `/Volumes/PL-EGplusww/Administrative and corporate files/DEPARTMENTS/QA/VITO`
-3. Odszukuje tam plik `latest_version.txt`. Jeśli wersja na serwerze jest nowsza niż ta lokalna (np. `2.1` > `2.0`), aplikacja blokuje start.
-4. Z pomocą `AppleScript` wywołuje w `bashu` powiadomienie z systemowym oknem `System Events`:
-   ```bash
-   osascript -e 'tell application "System Events" to display dialog "Dostępna jest nowa wersja..."'
-   ```
-5. Użytkownik widzi natywne powiadomienie na ekranie i może albo zamknąć okno by skontaktować się z administratorem, albo opcjonalnie kontynuować przestarzałą sesję w trybie awaryjnym.
-
-Ważne jest użycie `tell application "System Events"`, co omija ograniczenia bezpieczeństwa macOS podczas uruchamiania poprzez tzw. "dwuklik" z Findera (przez `launchd`).
+### Rozwiązanie:
+* **Kompilacja C:** Główny plik `Sync_DualPlayer` jest skompilowanym plikiem binarnym w języku C. Uruchamia on skrypt bashowy za pomocą funkcji systemowej `execl`:
+  ```c
+  execl("/bin/bash", "bash", script_path, (char *)NULL);
+  ```
+  macOS traktuje to jako natywny proces GUI i pozwala na poprawne zarządzanie uprawnieniami.
+* **Deklaracje w Info.plist:** W pliku `Info.plist` zadeklarowano klucze:
+  ```xml
+  <key>NSNetworkVolumesUsageDescription</key>
+  <string>Aplikacja wymaga dostępu do dysku sieciowego w celu wczytania szablonów CV_Assets.</string>
+  <key>NSDocumentsFolderUsageDescription</key>
+  <string>Aplikacja wymaga dostępu do folderu Dokumenty w celu wczytania szablonów CV_Assets.</string>
+  ```
+  Dzięki temu system pyta użytkownika o dostęp (jednorazowo), po czym zapisuje zgodę w preferencjach systemowych. Aplikacja działa bez terminala na pierwszym planie, prezentując dedykowaną ikonę w Docku.
 
 ---
 
-*Zastosowanie tych trzech kroków umożliwia dostarczenie złożonego środowiska React+Python jako bezobsługowej paczki instalacyjnej na macOS, gotowej do uruchomienia dwukrotnym kliknięciem.*
+## 3. Kompilacja i Pakowanie (`build_dmg.sh`)
+
+Budowanie całej aplikacji odbywa się za pomocą jednego polecenia:
+```bash
+./build_dmg.sh
+```
+
+**Kroki wykonywane automatycznie przez skrypt:**
+1. Kompilacja kodu frontendu (React/Vite).
+2. Kopiowanie wygenerowanych plików statycznych do katalogu `.app`.
+3. Kopiowanie skryptów backendu oraz zainicjowanie plików wersji.
+4. Kompilacja binarnego wrappera wejściowego (`wrapper.c`) jako **Universal Binary** (dla arm64 oraz x86_64).
+5. Nadanie uprawnień wykonywania (`chmod +x`).
+6. Wygenerowanie spakowanego obrazu dystrybucyjnego `.dmg`.
+
+---
+
+## 4. Procedura QA przed Udostępnieniem Zespołowi (Checklista)
+
+Przed każdym wydaniem nowej wersji aplikacji standalone do zespołu, wykonaj poniższe kroki weryfikacyjne w celu uniknięcia regresji:
+
+### Krok 1: Weryfikacja czystości portu 8080
+Przed uruchomieniem upewnij się, że port `8080` nie jest zajęty przez wiszący stary proces:
+```bash
+lsof -i :8080
+```
+*Jeśli polecenie coś zwróci, ubij proces (`kill -9 PID`) lub poczekaj, aż skrypt startowy zrobi to automatycznie.*
+
+### Krok 2: Weryfikacja zamontowania dysku sieciowego
+Upewnij się, że dysk sieciowy `PL-EGplusww` jest zamontowany w systemie operacyjnym:
+```bash
+ls -la /Volumes/PL-EGplusww
+```
+*Dysk musi być zamontowany w Finderze (skrót Cmd+K -> smb://...), a folder szablonów `CV_Assets` musi być widoczny.*
+
+### Krok 3: Test czystego uruchomienia
+1. Uruchom nowo skompilowaną aplikację z katalogu aplikacji: `/Users/hubert.rycaj/Applications/Sync_DualPlayer.app`.
+2. Upewnij się, że:
+   * **NIE** otwiera się puste, czarne okno Terminala.
+   * Na pasku Dock pojawia się ikona **Sync DualPlayer** (a nie ikona terminala).
+   * Karta w przeglądarce pod adresem `http://localhost:8080` otwiera się automatycznie.
+
+### Krok 4: Weryfikacja uprawnień (TCC)
+Przy pierwszym uruchomieniu po instalacji lub zmianie sygnatury upewnij się, że:
+1. macOS wyświetlił komunikat pytający o uprawnienia dostępu do dysku sieciowego / wolumenu.
+2. Kliknięto **OK**.
+
+### Krok 5: Test integracyjny analizatora (PS Auto-Check)
+1. Wgraj plik briefu `.xlsx` oraz dowolny plik wideo QA (np. `MX-ES`).
+2. Kliknij przycisk **PS Auto-Check**.
+3. Sprawdź, czy statusy dopasowania BING, Rating i BONG zmieniły się na zielone `FOUND` (lub prawidłowo zweryfikowane wartości procentowe).
+4. Sprawdź plik logów `/tmp/vito_error.log`, aby upewnić się, że dopasowanie przebiegło poprawnie i uzyskało współczynniki powyżej progu akceptacji (szablony wczytane z sieci):
+   ```bash
+   tail -n 20 /tmp/vito_error.log
+   ```
+   *Powinieneś zobaczyć wpisy typu: `[CV DEBUG] match_template: path=/Volumes/PL-EGplusww/... matched=True`.*

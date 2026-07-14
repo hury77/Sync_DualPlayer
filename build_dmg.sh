@@ -36,8 +36,11 @@ fi
 # Zapisujemy wersję do pliku
 echo "${APP_VERSION}" > "${SRC_DIR}/backend/version.txt"
 
-# 4. Nadanie uprawnień
+# 4. Skompilowanie binarnego wrappera wejściowego (Universal Binary)
+echo "⚙️ Kompilacja binarnego wrappera wejściowego..."
+clang -arch arm64 -arch x86_64 wrapper.c -o "${APP_DIR}/Contents/MacOS/Sync_DualPlayer"
 chmod +x "${APP_DIR}/Contents/MacOS/Sync_DualPlayer"
+chmod +x "${APP_DIR}/Contents/MacOS/Sync_DualPlayer_run.sh"
 
 # 5. Tworzenie pliku DMG
 echo "💿 Generowanie pliku DMG..."

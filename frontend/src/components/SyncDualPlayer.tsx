@@ -243,11 +243,11 @@ export const SyncDualPlayer: React.FC = () => {
         body: formData,
       });
       const json = await res.json();
-      if (json.success) {
+      if (res.ok && json.success) {
         setIsBriefUploaded(true);
         // Opcjonalnie mały alert lub toast, my polegamy na zmianie tekstu na przycisku
       } else {
-        alert("Błąd wgrywania Briefu: " + json.error);
+        alert("Błąd wgrywania Briefu: " + (json.detail || json.error || "Nieznany błąd serwera."));
       }
     } catch (err) {
       console.error(err);
@@ -346,27 +346,29 @@ export const SyncDualPlayer: React.FC = () => {
       if (wasPlaying) video.pause();
       
       const dur = video.duration;
+      // We only need a few samples:
+      // - 1.5s for BING/Rating (start)
+      // - dur - 1.5s, dur - 1.0s, dur - 0.5s for BONG (end)
       const frameTimes = [
-        0.5, 1.0, 1.5, 2.0, 2.5, 3.0, // BING
-        Math.max(0, dur - 1.9), Math.max(0, dur - 1.7), Math.max(0, dur - 1.5), 
-        Math.max(0, dur - 1.3), Math.max(0, dur - 1.1), Math.max(0, dur - 0.9), 
-        Math.max(0, dur - 0.7), Math.max(0, dur - 0.5) // Covers both BONG shot1 and shot2
+        0.5, 1.0, 1.5, 2.0, 2.5, 3.0,
+        Math.max(0, dur - 1.5),
+        Math.max(0, dur - 1.0),
+        Math.max(0, dur - 0.5)
       ];
       
       let finalMetaUsed: any = null;
       
       const analyzeFrame = async (base64: string, timestamp: number) => {
-        try {
-          const res = await fetch("/api/v1/analyze-elements", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ image_base64: base64, country_code: meta.country, filename: acceptanceFile.name, timestamp: timestamp })
-          });
-          return await res.json();
-        } catch (e) {
-          console.error(e);
-          return { rating: false, bing: false, bong: false };
+        const res = await fetch("/api/v1/analyze-elements", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ image_base64: base64, country_code: meta.country, filename: acceptanceFile.name, timestamp: timestamp })
+        });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.detail || `Server returned status ${res.status}`);
         }
+        return await res.json();
       };
 
       const tStart = performance.now();
@@ -408,8 +410,8 @@ export const SyncDualPlayer: React.FC = () => {
       let foundBong: string | null = null;
 
       for (const res of results) {
-         if (res.rating === "INCORRECT") finalRating = "INCORRECT";
-         else if (res.rating === "FOUND" && finalRating !== "INCORRECT") finalRating = "FOUND";
+         if (res.rating === "FOUND") finalRating = "FOUND";
+         else if (res.rating === "INCORRECT" && finalRating !== "FOUND") finalRating = "INCORRECT";
 
          if (res.bing === "FOUND") finalBing = "FOUND";
          else if (res.bing === "INCORRECT" && finalBing !== "FOUND") finalBing = "INCORRECT";
@@ -455,20 +457,15 @@ export const SyncDualPlayer: React.FC = () => {
         } : null);
       }
       
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      alert("Błąd podczas Playstation QA: " + (err.message || err));
     } finally {
       setIsPsQaAnalyzing(false);
     }
   };
 
-  // ── QA Technical Analysis State ─────────────────────────────────────────────
-  const [isQaMode, setIsQaMode] = useState(false);
-  const [qaDefects, setQaDefects] = useState<{ time: number; type: "black" | "freeze" | "skip" }[]>([]);
-  const qaWorkerRef = useRef<Worker | null>(null);
-  const qaIntervalRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const qaLoggedTimesRef = useRef<Set<number>>(new Set());
-  const lastQaFrameDataRef = useRef<ImageData | null>(null);
+
 
   // Video Refs
   const acceptanceVideoRef = useRef<HTMLVideoElement>(null);
@@ -789,7 +786,7 @@ export const SyncDualPlayer: React.FC = () => {
     });
     setIsPlaying(false);
     setCurrentTime(0);
-    if (isQaMode) deactivateQaMode();
+
   };
 
   const handleRefresh = () => {
@@ -883,6 +880,16 @@ export const SyncDualPlayer: React.FC = () => {
     setOcrBriefText("");
     setPsQaResults(null);
     setPsQaMetadata(null);
+    
+    // Clear brief and copydeck uploads
+    setIsBriefUploaded(false);
+    setCopydeckData(null);
+    if (briefInputRef.current) briefInputRef.current.value = "";
+    if (copydeckInputRef.current) copydeckInputRef.current.value = "";
+    
+    fetch("/api/v1/clear-qa-assets", {
+      method: "POST"
+    }).catch(err => console.error("Error clearing QA assets:", err));
   };
 
   const getMouseSourceCoordinates = (e: React.MouseEvent<HTMLVideoElement>, videoRef: React.RefObject<HTMLVideoElement | null>) => {
@@ -1165,126 +1172,6 @@ export const SyncDualPlayer: React.FC = () => {
     );
   }, []);
 
-  
-  // ── QA Technical Analysis Logic ──────────────────────────────────────────
-  const analyzeQaFrame = useCallback(() => {
-    const video = acceptanceVideoRef.current;
-    if (!video || !qaWorkerRef.current) return;
-    if (video.readyState < 2) return;
-
-    const { w: W, h: H } = getBoundedDimensions(video.videoWidth, video.videoHeight);
-    if (W === 0 || H === 0) return;
-
-    const tmpCanvas = document.createElement("canvas");
-    tmpCanvas.width = W;
-    tmpCanvas.height = H;
-    const tmpCtx = tmpCanvas.getContext("2d", { willReadFrequently: true });
-    if (!tmpCtx) return;
-
-    tmpCtx.drawImage(video, 0, 0, W, H);
-    const currentData = tmpCtx.getImageData(0, 0, W, H);
-    const previousData = lastQaFrameDataRef.current;
-
-    qaWorkerRef.current.postMessage(
-      { currentData, previousData, width: W, height: H },
-      // We can't transfer currentData buffer because we need it for next frame's previousData
-      [] 
-    );
-    
-    lastQaFrameDataRef.current = currentData;
-  }, []);
-
-  const activateQaMode = useCallback(() => {
-    if (!acceptanceVideoRef.current) return;
-
-    const workerCode = `
-      self.onmessage = function(e) {
-        var currentData = e.data.currentData;
-        var previousData = e.data.previousData;
-        var width = e.data.width;
-        var height = e.data.height;
-        var total = width * height;
-        
-        var luminanceSum = 0;
-        var pixelDiffSum = 0;
-        
-        for (var i = 0; i < total; i++) {
-          var idx = i * 4;
-          var r = currentData.data[idx];
-          var g = currentData.data[idx+1];
-          var b = currentData.data[idx+2];
-          
-          var lum = 0.299 * r + 0.587 * g + 0.114 * b;
-          luminanceSum += lum;
-          
-          if (previousData) {
-            var pr = previousData.data[idx];
-            var pg = previousData.data[idx+1];
-            var pb = previousData.data[idx+2];
-            pixelDiffSum += Math.max(Math.abs(r - pr), Math.abs(g - pg), Math.abs(b - pb));
-          }
-        }
-        
-        var avgLuminance = luminanceSum / total;
-        var avgDiff = previousData ? (pixelDiffSum / total) : 0;
-        
-        var isBlack = avgLuminance < 3; // Very dark
-        var isFreeze = previousData ? (avgDiff < 1.0) : false; // Extremely low delta
-        var isSkip = previousData ? (avgDiff > 60 && avgDiff < 100) : false; // Sudden jump but not full cut
-        
-        self.postMessage({ avgLuminance, avgDiff, isBlack, isFreeze, isSkip });
-      };
-    `;
-    const blob = new Blob([workerCode], { type: "application/javascript" });
-    const worker = new Worker(URL.createObjectURL(blob));
-    qaWorkerRef.current = worker;
-
-    worker.onmessage = (e) => {
-      const { isBlack, isFreeze, isSkip } = e.data;
-      const time = acceptanceVideoRef.current?.currentTime ?? 0;
-      const roundedTime = Math.floor(time * 2) / 2; // Granularity of 0.5s
-
-      if (isBlack || isFreeze || isSkip) {
-        if (!qaLoggedTimesRef.current.has(roundedTime)) {
-          qaLoggedTimesRef.current.add(roundedTime);
-          let type: "black" | "freeze" | "skip" = isBlack ? "black" : isFreeze ? "freeze" : "skip";
-          setQaDefects(prev => {
-            // Avoid adding same type very close to each other
-            if (prev.length > 0) {
-              const last = prev[prev.length - 1];
-              if (last.type === type && Math.abs(last.time - time) < 1.0) return prev;
-            }
-            return [...prev, { time, type }];
-          });
-        }
-      }
-    };
-
-    setIsQaMode(true);
-    qaLoggedTimesRef.current.clear();
-    setQaDefects([]);
-    lastQaFrameDataRef.current = null;
-
-    analyzeQaFrame();
-    qaIntervalRef.current = setInterval(() => {
-      if (!acceptanceVideoRef.current?.paused) {
-        analyzeQaFrame();
-      }
-    }, 250); // 4 times a second
-  }, [analyzeQaFrame]);
-
-  const deactivateQaMode = useCallback(() => {
-    if (qaIntervalRef.current) {
-      clearInterval(qaIntervalRef.current);
-      qaIntervalRef.current = null;
-    }
-    if (qaWorkerRef.current) {
-      qaWorkerRef.current.terminate();
-      qaWorkerRef.current = null;
-    }
-    setIsQaMode(false);
-    lastQaFrameDataRef.current = null;
-  }, []);
 
   /** Start diff mode: create Worker, begin periodic analysis */
   const activateDiffMode = useCallback(() => {
@@ -2725,22 +2612,7 @@ export const SyncDualPlayer: React.FC = () => {
           </div>
         )}
         
-        {isSinglePlayerMode && (
-          <button
-            onClick={() => isQaMode ? deactivateQaMode() : activateQaMode()}
-            disabled={!acceptanceFile}
-            title="QA Technical Analysis"
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold shadow-sm transition-all disabled:opacity-100 disabled:bg-gray-100 disabled:text-gray-400 disabled:shadow-none disabled:cursor-not-allowed ${
-              isQaMode
-                ? "bg-amber-600 hover:bg-amber-700 text-white shadow-amber-600/20"
-                : "bg-blue-600 hover:bg-blue-700 text-white shadow-blue-600/20"
-            }`}
-          >
-            <EyeIcon className="w-4 h-4" />
-            {isQaMode ? "QA ON" : "QA Analysis"}
-            {isQaMode && <span className="w-2 h-2 rounded-full bg-white animate-pulse" />}
-          </button>
-        )}
+
 
         {/* OCR Top Toolbar Toggle */}
         {isSinglePlayerMode && (
@@ -2893,12 +2765,7 @@ export const SyncDualPlayer: React.FC = () => {
             
             <div className={`p-4 rounded-xl border flex flex-col items-center justify-center text-center ${psQaResults ? (psQaResults.rating === 'FOUND' ? 'bg-green-50 border-green-200' : psQaResults.rating === 'INCORRECT' ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200') : 'bg-gray-50 border-gray-100'}`}>
               <span className="text-xs text-gray-500 uppercase tracking-wider mb-2 font-semibold">RATING</span>
-              {psQaResults?.rating === 'FOUND' && psQaResults?.expected_rating_b64 && (
-                <div className="h-12 w-full flex items-center justify-center mb-2">
-                  <img src={psQaResults.expected_rating_b64} alt="Expected RATING" className="max-h-full max-w-full object-contain mix-blend-multiply opacity-90 drop-shadow-sm" title="Znaleziono poprawny rating" />
-                </div>
-              )}
-              {psQaResults && psQaResults.rating !== 'FOUND' && (
+              {psQaResults && (
                 <div className="flex flex-row items-start justify-center gap-4 w-full mb-3">
                   {psQaResults.brief_rating_b64 && (
                     <div className="flex flex-col items-center">
@@ -2979,45 +2846,7 @@ export const SyncDualPlayer: React.FC = () => {
         </div>
       )}
 
-      {/* ── QA Technical Analysis Timestamps Panel ── */}
-      {isQaMode && qaDefects.length > 0 && (
-        <div className="mb-6 bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-          <div className="px-5 py-3 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <span className="text-sm font-semibold text-gray-800">QA Technical Analysis ({qaDefects.length} defects)</span>
-            <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500">
-              <span className="flex items-center gap-1"><span className="text-[10px]">⬛️</span> Blackness</span>
-              <span className="flex items-center gap-1"><span className="text-[10px]">❄️</span> Freeze</span>
-              <span className="flex items-center gap-1"><span className="text-[10px]">⚠️</span> Frame Skip</span>
-              <span className="hidden sm:inline-block ml-2 border-l border-gray-200 pl-3 text-gray-400">Click to jump to time</span>
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-2 p-4">
-            {qaDefects.map((ts, i) => (
-              <button
-                key={i}
-                onClick={() => handleSeek(ts.time)}
-                title={ts.type}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-semibold border transition-all hover:scale-105 ${
-                  ts.type === "black"
-                    ? "bg-gray-800 border-gray-900 text-white hover:bg-gray-700"
-                    : ts.type === "freeze"
-                    ? "bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100"
-                    : "bg-yellow-50 border-yellow-200 text-yellow-700 hover:bg-yellow-100"
-                }`}
-              >
-                <span>{ts.type === "black" ? "⬛️" : ts.type === "freeze" ? "❄️" : "⚠️"}</span>
-                {formatTimecode(ts.time)}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-      {isQaMode && qaDefects.length === 0 && (
-        <div className="mb-6 px-5 py-3 bg-blue-50 border border-blue-200 rounded-2xl text-sm text-blue-700 flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
-          QA Analysis active — no defects detected.
-        </div>
-      )}
+
 
       {/* Video Panels Area */}
       <div className={`grid grid-cols-1 ${isSinglePlayerMode ? '' : 'lg:grid-cols-2'} gap-6 mb-8`}>

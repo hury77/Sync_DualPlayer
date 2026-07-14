@@ -232,7 +232,7 @@ def get_cached_image(path_str):
             _image_cache[path_str] = img
         return img
 
-def match_template(image_np, template_path, threshold=0.8, return_score=False, force_coeff=False, min_scale=0.05, max_scale=1.5):
+def match_template(image_np, template_path, threshold=0.8, return_score=False, force_coeff=False, min_scale=0.05, max_scale=1.5, crop_template=False):
     import cv2
     if not os.path.exists(template_path):
         if return_score:
@@ -244,6 +244,26 @@ def match_template(image_np, template_path, threshold=0.8, return_score=False, f
         if return_score:
             return False, 0.0
         return False
+        
+    if crop_template:
+        template = template.copy()
+        if len(template.shape) == 3:
+            gray_tmpl = cv2.cvtColor(template[:, :, :3], cv2.COLOR_BGR2GRAY)
+        else:
+            gray_tmpl = template
+        _, thresh = cv2.threshold(gray_tmpl, 180, 255, cv2.THRESH_BINARY)
+        contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        x_min, y_min = template.shape[1], template.shape[0]
+        x_max, y_max = 0, 0
+        for c in contours:
+            x, y, w, h = cv2.boundingRect(c)
+            if w > 10 and h > 10:
+                x_min = min(x_min, x)
+                y_min = min(y_min, y)
+                x_max = max(x_max, x + w)
+                y_max = max(y_max, y + h)
+        if x_max > x_min and y_max > y_min:
+            template = template[y_min:y_max, x_min:x_max]
         
     has_alpha = False
     if len(template.shape) == 3 and template.shape[2] == 4:
@@ -330,6 +350,13 @@ def match_template(image_np, template_path, threshold=0.8, return_score=False, f
         if max_val > best_max_val:
             best_max_val = max_val
             
+    msg = f"[CV DEBUG] match_template: path={template_path} crop={crop_template} best_max_val={best_max_val:.4f} threshold={threshold} matched={best_max_val >= threshold}\n"
+    try:
+        with open("/tmp/vito_error.log", "a") as f:
+            f.write(msg)
+    except:
+        pass
+    print(msg.strip(), flush=True)
     if return_score:
         return best_max_val >= threshold, best_max_val
     return best_max_val >= threshold
@@ -337,13 +364,68 @@ def match_template(image_np, template_path, threshold=0.8, return_score=False, f
 @app.post("/api/v1/brief/upload")
 async def upload_brief(file: UploadFile = File(...)):
     try:
-        brief_path = UPLOAD_DIR / "current_brief.xlsx"
         contents = await file.read()
+        
+        # Walidacja pliku Excel
+        import io
+        import re
+        try:
+            xl = pd.ExcelFile(io.BytesIO(contents))
+            sheets = xl.sheet_names
+        except Exception:
+            raise HTTPException(status_code=400, detail="Wgrany plik nie jest prawidłowym plikiem Excel (.xlsx).")
+            
+        if not sheets:
+            raise HTTPException(status_code=400, detail="Wgrany plik Excel jest pusty.")
+            
+        # Wykrywanie Copydecka zamiast Briefu
+        if "Extended table" in sheets:
+            raise HTTPException(status_code=400, detail="Wgrany plik to prawdopodobnie Copydeck, a nie LOC Brief. Proszę wgrać właściwy plik LOC Brief (.xlsx).")
+            
+        # Sprawdzanie czy plik ma przynajmniej jedną zakładkę językową (np. FI-FI, PL-PL, JA, AR)
+        has_lang_sheet = False
+        for s in sheets:
+            clean_s = s.strip().upper()
+            if re.match(r'^[A-Z]{2}(-[A-Z]{2,4})?$', clean_s) or clean_s in ["JA", "ZH", "KO", "AR", "JA-JA", "KO-KO"]:
+                has_lang_sheet = True
+                break
+                
+        if not has_lang_sheet:
+            raise HTTPException(
+                status_code=400, 
+                detail="Wgrany plik nie wygląda na prawidłowy LOC Brief. Brak zakładek językowych (np. FI-FI, CA-FR, PL-PL)."
+            )
+            
+        brief_path = UPLOAD_DIR / "current_brief.xlsx"
         with open(brief_path, "wb") as f:
             f.write(contents)
         return {"success": True, "message": "Brief uploaded successfully"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/v1/clear-qa-assets")
+async def clear_qa_assets():
+    brief_path = UPLOAD_DIR / "current_brief.xlsx"
+    copydeck_path = UPLOAD_DIR / "current_copydeck.xlsx"
+    
+    with _brief_cache_lock:
+        _brief_cache.clear()
+        
+    try:
+        if brief_path.exists():
+            os.remove(brief_path)
+    except Exception as e:
+        print(f"Error removing brief: {e}")
+        
+    try:
+        if copydeck_path.exists():
+            os.remove(copydeck_path)
+    except Exception as e:
+        print(f"Error removing copydeck: {e}")
+        
+    return {"success": True, "message": "LOC Brief and Copydeck cleared successfully"}
 
 def get_base64_from_path(path_str):
     if not path_str or not os.path.exists(path_str):
@@ -474,8 +556,40 @@ def get_cached_brief_data(brief_path_str: str, sheet_name: str, cv_assets_dir: P
         
         return reqs, icon_bytes, best_db_path
 
+@app.get("/api/v1/debug-assets")
+def debug_assets():
+    import os
+    import cv2
+    import numpy as np
+    from pathlib import Path
+    cv_assets_dir = Path("/Volumes/PL-EGplusww/Administrative and corporate files/DEPARTMENTS/QA/VITO/CV_Assets")
+    bing_std = cv_assets_dir / "BING" / "9x16" / "Universal" / "shot1.png"
+    img_imread = cv2.imread(str(bing_std)) if bing_std.exists() else None
+    
+    img_imdecode = None
+    imdecode_err = None
+    if bing_std.exists():
+        try:
+            with open(bing_std, "rb") as f:
+                b = f.read()
+            img_imdecode = cv2.imdecode(np.frombuffer(b, np.uint8), cv2.IMREAD_COLOR)
+        except Exception as e:
+            imdecode_err = str(e)
+            
+    return {
+        "p1_exists": cv_assets_dir.exists(),
+        "cv_assets_dir": str(cv_assets_dir),
+        "bing_std_path": str(bing_std),
+        "bing_std_exists": bing_std.exists(),
+        "bing_imread_loaded": img_imread is not None,
+        "bing_imdecode_loaded": img_imdecode is not None,
+        "bing_imdecode_shape": img_imdecode.shape if img_imdecode is not None else None,
+        "imdecode_err": imdecode_err,
+        "current_working_dir": os.getcwd(),
+    }
+
 @app.post("/api/v1/analyze-elements")
-async def analyze_elements(req: AnalyzeFrameRequest):
+def analyze_elements(req: AnalyzeFrameRequest):
     import time
     start_time = time.time()
     try:
@@ -505,7 +619,10 @@ async def analyze_elements(req: AnalyzeFrameRequest):
             
         cv_assets_dir = Path("/Volumes/PL-EGplusww/Administrative and corporate files/DEPARTMENTS/QA/VITO/CV_Assets")
         if not cv_assets_dir.exists():
-            cv_assets_dir = Path("/Users/hubert.rycaj/Documents/PS_elements/CV_Assets")
+            raise HTTPException(
+                status_code=400,
+                detail="Błąd krytyczny: Dysk sieciowy PL-EGplusww nie jest zamontowany! Podłącz się do dysku sieciowego (Finder -> Go -> Connect to Server), aby pobrać szablony CV_Assets."
+            )
             
         sheet_name = lang_code if "-" in lang_code else f"{lang_code}-{lang_code}"
         
@@ -657,7 +774,28 @@ async def analyze_elements(req: AnalyzeFrameRequest):
         # 4. Wykonanie Computer Vision (Template Matching)
         
         is_start = req.timestamp is None or req.timestamp <= 4.0
-        is_end = req.timestamp is None or req.timestamp >= 10.0
+        
+        # Determine if it's the end of the video based on parsed duration
+        is_end = False
+        if req.timestamp is None:
+            is_end = True
+        else:
+            # Parse duration from filename (e.g. 06s, 15s, 30s)
+            vid_duration = 30.0 # Default fallback
+            if req.filename:
+                import re
+                dur_match = re.search(r'_(\d+)s', req.filename.upper())
+                if dur_match:
+                    try:
+                        vid_duration = float(dur_match.group(1))
+                    except:
+                        pass
+            
+            # If the timestamp is near the end, check BONG
+            if req.timestamp >= (vid_duration - 2.0):
+                is_end = True
+            elif req.timestamp >= 10.0:
+                is_end = True
         
         # Ogranicz obszar poszukiwań ratingu do dolnej połowy ekranu dla poziomego wideo (16x9).
         # Dla pionowego (9x16) lub kwadratowego (1x1) przeszukujemy cały ekran, gdyż rating może być na środku.
@@ -687,7 +825,7 @@ async def analyze_elements(req: AnalyzeFrameRequest):
                 th = 800
             min_sc = max(0.02, 40.0 / th)
             max_sc = min(1.5, 300.0 / th)
-            matched, score = match_template(img_rating, rp, return_score=True, force_coeff=True, min_scale=min_sc, max_scale=max_sc)
+            matched, score = match_template(img_rating, rp, return_score=True, force_coeff=False, min_scale=min_sc, max_scale=max_sc)
             if score > 0.4:
                 try:
                     tmp_img = get_cached_image(rp)
@@ -756,7 +894,7 @@ async def analyze_elements(req: AnalyzeFrameRequest):
                             th = 800
                         min_sc = max(0.02, 40.0 / th)
                         max_sc = min(1.5, 300.0 / th)
-                        _, c_score = match_template(img_rating, str(f), return_score=True, force_coeff=True, min_scale=min_sc, max_scale=max_sc)
+                        _, c_score = match_template(img_rating, str(f), return_score=True, force_coeff=False, min_scale=min_sc, max_scale=max_sc)
                         if c_score > best_competitor_score:
                             best_competitor_score = c_score
                             best_competitor_path = str(f)
@@ -781,7 +919,7 @@ async def analyze_elements(req: AnalyzeFrameRequest):
                         th = 800
                     min_sc = max(0.02, 40.0 / th)
                     max_sc = min(1.5, 300.0 / th)
-                    matched, score = match_template(img_rating, gp, return_score=True, force_coeff=True, min_scale=min_sc, max_scale=max_sc)
+                    matched, score = match_template(img_rating, gp, return_score=True, force_coeff=False, min_scale=min_sc, max_scale=max_sc)
                     if score > best_generic_score:
                         best_generic_score = score
                         best_generic_path = gp
@@ -795,11 +933,11 @@ async def analyze_elements(req: AnalyzeFrameRequest):
                 has_rating = False
                 rating_path_used = None
 
-        has_bing = match_template(img_np, bing_path)
+        has_bing = match_template(img_np, bing_path, crop_template=True)
         bing_status = "FOUND" if has_bing else "MISSING"
         if not has_bing and is_start:
             pss_bing = cv_assets_dir / "BING" / bong_dim / "PS Studios" / "shot1_cropped.png"
-            if pss_bing.exists() and match_template(img_np, str(pss_bing)):
+            if pss_bing.exists() and match_template(img_np, str(pss_bing), crop_template=True):
                 bing_status = "INCORRECT"
                 
         has_bong = False
