@@ -142,14 +142,16 @@ def get_requirements_from_brief(brief_path: str, language_code: str) -> dict:
         # więc wiersze mogą być przesunięte. Lepiej przeszukać DataFrame w poszukiwaniu słowa "RATING".
         
         target_row = None
-        # Przeszukujemy wszystkie komórki by znaleźć gdzie jest nagłówek 'RATING'
+        expected_headers = ['RATING', 'AGE', 'BING', 'BONG']
+        # Przeszukujemy wszystkie komórki by znaleźć gdzie są nagłówki wymogów
         for i, row in df.iterrows():
-            if 'RATING' in row.values:
+            row_vals = [str(v).strip().upper() for v in row.values]
+            if any(v in expected_headers or 'PHNL' in v for v in row_vals):
                 target_row = i
                 break
                 
         if target_row is None:
-            raise ParserError(f"Nie znaleziono tabeli wymogów (RATING, AGE, BING, BONG) w zakładce {language_code}")
+            raise ParserError(f"Nie znaleziono tabeli wymogów (RATING, AGE, BING, BONG, PHNL) w zakładce {language_code}")
             
         # Wiersz z wartościami jest zazwyczaj zaraz pod nagłówkami
         headers = df.iloc[target_row].fillna('').astype(str).str.strip().str.upper()
@@ -158,10 +160,14 @@ def get_requirements_from_brief(brief_path: str, language_code: str) -> dict:
         # Tworzymy mapowanie
         req = {}
         for col_idx, col_name in enumerate(headers):
-            if col_name in ['RATING', 'AGE', 'BING', 'BONG'] or 'PHNL' in col_name:
+            if col_name in ['RATING', 'AGE', 'BING', 'BONG']:
                 val = str(values.iloc[col_idx]).strip()
                 if val.lower() == 'nan': val = ""
                 req[col_name] = val
+            elif 'PHNL' in col_name:
+                val = str(values.iloc[col_idx]).strip()
+                if val.lower() == 'nan': val = ""
+                req['PHNL'] = val
                 
         # Zabezpieczenie: jeśli wiek jest liczbą z kropką (np. 12.0)
         if req.get("AGE") and req["AGE"].endswith(".0"):

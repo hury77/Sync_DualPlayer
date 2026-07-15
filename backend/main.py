@@ -745,13 +745,13 @@ def analyze_elements(req: AnalyzeFrameRequest):
             
         VALID_BONG_LANGS = ["AR", "EN_R", "EN_TM", "ES", "ES_R", "FR", "FR_ALT", "JA", "PT", "RU", "TR", "UA", "ZH"]
         
-        phnl_localised = str(reqs.get("PHNL LOCK-UP LOCALISED?", "NO")).upper().strip()
-        phnl_lang = str(reqs.get("PHNL LANGUAGE", "")).upper().strip()
+        phnl_val = str(reqs.get("PHNL", "")).upper().strip()
         
         paths_to_check = []
         is_universal = False
         
-        if phnl_localised == "NO" or "US (MASTER)" in phnl_lang or "ENGLISH" in phnl_lang:
+        # If it's explicitly 'STANDARD' or similar, we consider it universal (or what does standard/localized mean?)
+        if phnl_val == "STANDARD" or phnl_val == "NO" or "US (MASTER)" in phnl_val or "ENGLISH" in phnl_val:
             is_universal = True
         elif bong_lang not in VALID_BONG_LANGS:
             is_universal = True

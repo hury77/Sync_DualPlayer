@@ -2763,40 +2763,26 @@ export const SyncDualPlayer: React.FC = () => {
               )}
             </div>
             
-            <div className={`p-4 rounded-xl border flex flex-col items-center justify-center text-center ${psQaResults ? (psQaResults.rating === 'FOUND' ? 'bg-green-50 border-green-200' : psQaResults.rating === 'INCORRECT' ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200') : 'bg-gray-50 border-gray-100'}`}>
+            <div className={`p-4 rounded-xl border flex flex-col items-center justify-center text-center ${psQaResults ? 'bg-amber-50 border-amber-200' : 'bg-gray-50 border-gray-100'}`}>
               <span className="text-xs text-gray-500 uppercase tracking-wider mb-2 font-semibold">RATING</span>
               {psQaResults && (
                 <div className="flex flex-row items-start justify-center gap-4 w-full mb-3">
-                  {psQaResults.brief_rating_b64 && (
+                  {psQaResults.brief_rating_b64 ? (
                     <div className="flex flex-col items-center">
                       <span className="text-[10px] text-gray-500 mb-1.5 font-bold uppercase tracking-wider">Brief</span>
                       <div className="h-20 w-20 flex items-center justify-center bg-white rounded-md border border-gray-200 p-1.5 shadow-sm">
                         <img src={psQaResults.brief_rating_b64} alt="Brief Icon" className="max-h-full max-w-full object-contain mix-blend-multiply" />
                       </div>
                     </div>
-                  )}
-                  {psQaResults.expected_rating_b64 && (
-                    <div className="flex flex-col items-center">
-                      <span className="text-[10px] text-gray-500 mb-1.5 font-bold uppercase tracking-wider">Baza</span>
-                      <div className="h-20 w-20 flex items-center justify-center bg-white rounded-md border border-gray-200 p-1.5 shadow-sm">
-                        <img src={psQaResults.expected_rating_b64} alt="DB Icon" className="max-h-full max-w-full object-contain mix-blend-multiply" />
-                      </div>
-                    </div>
-                  )}
-                  {psQaResults.found_rating_b64 && (
-                    <div className="flex flex-col items-center">
-                      <span className="text-[10px] text-red-600 mb-1.5 font-bold uppercase tracking-wider">Wideo</span>
-                      <div className="h-20 w-20 flex items-center justify-center bg-white rounded-md border border-red-300 p-1.5 shadow-sm">
-                        <img src={psQaResults.found_rating_b64} alt="Found Icon" className="max-h-full max-w-full object-contain mix-blend-multiply" />
-                      </div>
-                    </div>
+                  ) : (
+                    <span className="text-xs text-gray-500">Brak ikony w briefie</span>
                   )}
                 </div>
               )}
               <span className="text-sm font-medium text-gray-900">{psQaMetadata.rating}</span>
               {psQaResults && (
-                <span className={`mt-2 px-3 py-1 rounded-full text-[11px] font-bold ${psQaResults.rating === 'FOUND' ? 'bg-green-100 text-green-700' : psQaResults.rating === 'INCORRECT' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>
-                  {psQaResults.rating === 'FOUND' ? "✅ FOUND" : psQaResults.rating === 'INCORRECT' ? "⚠️ INCORRECT VERSION" : "❌ CRITICAL: MISSING"}
+                <span className="mt-2 px-3 py-1 rounded-full text-[11px] font-bold bg-amber-100 text-amber-700">
+                  ⚠️ PORÓWNAJ NAOCZNIE
                 </span>
               )}
             </div>
@@ -2936,6 +2922,8 @@ export const SyncDualPlayer: React.FC = () => {
                 onMouseMove={(e) => handleVideoMouseMove(e, acceptanceVideoRef)}
                 onMouseUp={handleVideoMouseUp}
                 onMouseLeave={handleVideoMouseUp}
+                draggable={false}
+                onDragStart={(e) => e.preventDefault()}
                 onError={() => {
                   setAcceptanceError("Failed to load video stream from server (np. file expired in DEV mode or connection lost).");
                 }}
@@ -3090,6 +3078,8 @@ export const SyncDualPlayer: React.FC = () => {
                 onMouseMove={(e) => handleVideoMouseMove(e, emissionVideoRef)}
                 onMouseUp={handleVideoMouseUp}
                 onMouseLeave={handleVideoMouseUp}
+                draggable={false}
+                onDragStart={(e) => e.preventDefault()}
                 onError={() => {
                   setEmissionError("Failed to load video stream from server (np. file expired in DEV mode or connection lost).");
                 }}
