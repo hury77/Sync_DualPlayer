@@ -2087,6 +2087,23 @@ export const SyncDualPlayer: React.FC = () => {
 
   const generatePDF = () => {
     const doc = new jsPDF();
+    
+    const getScaledDim = (imgData: string, maxW: number, maxH: number) => {
+      try {
+        const props = doc.getImageProperties(imgData);
+        const ratio = props.width / props.height;
+        let w = maxW;
+        let h = maxW / ratio;
+        if (h > maxH) {
+          h = maxH;
+          w = maxH * ratio;
+        }
+        return { w, h };
+      } catch(e) {
+        return { w: maxW, h: maxH };
+      }
+    };
+
     doc.setFont("helvetica", "bold");
     doc.setFontSize(20);
     doc.text("QA Report - Sync DualPlayer", 20, 20);
@@ -2132,38 +2149,46 @@ export const SyncDualPlayer: React.FC = () => {
           hasVideoImages = true;
           doc.setFontSize(9);
           doc.text("Video (Inspekcja):", 20, yOffset);
-          doc.addImage(item.acceptanceImage, "JPEG", 20, yOffset + 3, 170, 95);
-          yOffset += 105;
+          const dim = getScaledDim(item.acceptanceImage, 170, 95);
+          doc.addImage(item.acceptanceImage, "JPEG", 20 + (170 - dim.w) / 2, yOffset + 3, dim.w, dim.h);
+          yOffset += Math.max(105, dim.h + 10);
         } else {
+          let h1 = 0, h2 = 0;
           if (item.acceptanceImage) {
             hasVideoImages = true;
             doc.setFontSize(9);
             doc.text("Video Acceptance:", 20, yOffset);
-            doc.addImage(item.acceptanceImage, "JPEG", 20, yOffset + 3, 80, 45);
+            const dim1 = getScaledDim(item.acceptanceImage, 80, 45);
+            doc.addImage(item.acceptanceImage, "JPEG", 20 + (80 - dim1.w) / 2, yOffset + 3, dim1.w, dim1.h);
+            h1 = dim1.h;
           }
           if (item.emissionImage) {
             hasVideoImages = true;
             doc.setFontSize(9);
             doc.text("Video Emission:", 110, yOffset);
-            doc.addImage(item.emissionImage, "JPEG", 110, yOffset + 3, 80, 45);
+            const dim2 = getScaledDim(item.emissionImage, 80, 45);
+            doc.addImage(item.emissionImage, "JPEG", 110 + (80 - dim2.w) / 2, yOffset + 3, dim2.w, dim2.h);
+            h2 = dim2.h;
           }
-          if (hasVideoImages) yOffset += 55;
+          if (hasVideoImages) yOffset += Math.max(55, Math.max(h1, h2) + 10);
         }
 
         if (item.diffImage) {
           if (yOffset > 220) { doc.addPage(); yOffset = 20; }
           doc.setFontSize(9);
           doc.text("Wipe / Diff View (Overlay):", 20, yOffset);
-          doc.addImage(item.diffImage, "JPEG", 20, yOffset + 3, 170, 95);
-          yOffset += 105;
+          const dim = getScaledDim(item.diffImage, 170, 95);
+          doc.addImage(item.diffImage, "JPEG", 20 + (170 - dim.w) / 2, yOffset + 3, dim.w, dim.h);
+          yOffset += Math.max(105, dim.h + 10);
         }
 
         if (item.ocrPanelImage) {
           if (yOffset > 180) { doc.addPage(); yOffset = 20; }
           doc.setFontSize(9);
           doc.text("Wyniki i Roznice OCR (Zrzut Panelu):", 20, yOffset);
-          doc.addImage(item.ocrPanelImage, "JPEG", 20, yOffset + 3, 170, 100);
-          yOffset += 110;
+          const dim = getScaledDim(item.ocrPanelImage, 170, 100);
+          doc.addImage(item.ocrPanelImage, "JPEG", 20 + (170 - dim.w) / 2, yOffset + 3, dim.w, dim.h);
+          yOffset += Math.max(110, dim.h + 10);
         }
 
         if (item.ocrTextAcceptance || item.ocrTextEmission) {
