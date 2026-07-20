@@ -3204,8 +3204,8 @@ export const SyncDualPlayer: React.FC = () => {
       </div>
 
       {/* Synchronized Playback Control Dashboard */}
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4">
+        <div className="flex flex-row items-center justify-between gap-4 overflow-x-auto">
           
           {/* Timeline and Seek Bar */}
           <div className="flex-grow flex items-center space-x-4">
@@ -3238,7 +3238,7 @@ export const SyncDualPlayer: React.FC = () => {
           </div>
 
           {/* Navigation Control Buttons */}
-          <div className="flex items-center justify-center space-x-3 flex-shrink-0">
+          <div className="flex items-center justify-center space-x-2 flex-shrink-0">
             {/* Step Backward */}
             <button
               onClick={() => handleStep(-1)}
