@@ -2880,7 +2880,7 @@ export const SyncDualPlayer: React.FC = () => {
 
         {/* Row 2: Video (left, 50%) + OCR (right, 50%, aligned top) */}
         <div className={isSinglePlayerMode && isHorizontalLayout ? "grid grid-cols-[3fr_2fr] gap-6 items-start" : "contents"}>
-          <div>
+          <div className="min-w-0">
       {/* Video Panels Area */}
       <div className={`grid grid-cols-1 ${isSinglePlayerMode ? '' : 'lg:grid-cols-2'} gap-6${isSinglePlayerMode && isHorizontalLayout ? '' : ' mb-8'}`}>
         
@@ -3427,7 +3427,7 @@ export const SyncDualPlayer: React.FC = () => {
         </div>
       </div>
           </div>
-          <div>
+          <div className="min-w-0 overflow-hidden">
       {/* OCR / Compare Copy Panel */}
       {isOcrActive && (
         <div id="ocr-panel-container" className={`bg-white rounded-2xl shadow-sm border border-purple-200 flex flex-col${isSinglePlayerMode && isHorizontalLayout ? " max-h-[80vh] overflow-hidden" : " mt-8 overflow-hidden"}`}>
