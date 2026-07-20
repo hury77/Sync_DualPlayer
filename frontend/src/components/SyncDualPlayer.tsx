@@ -198,6 +198,7 @@ export const SyncDualPlayer: React.FC = () => {
   // ── Single Player Mode State ────────────────────────────────────────────────
   const [isSinglePlayerMode, setIsSinglePlayerMode] = useState(false);
   const [isHorizontalLayout, setIsHorizontalLayout] = useState(false);
+  const [isVideoBgLight, setIsVideoBgLight] = useState(false);
 
   
 
@@ -1108,13 +1109,21 @@ export const SyncDualPlayer: React.FC = () => {
 
       if (e.code === "Space") {
         e.preventDefault(); // Prevent scrolling
-        togglePlayPause();
+        if (currentTime >= duration - 0.05 && duration > 0) {
+          handleSeek(0);
+          setIsPlaying(true);
+          [acceptanceVideoRef.current, emissionVideoRef.current].forEach(v => {
+            if (v) v.play().catch(console.error);
+          });
+        } else {
+          togglePlayPause();
+        }
       } else if (e.code === "ArrowRight") {
         e.preventDefault();
-        handleStep(1); // One frame forward
+        handleStep(3); // 3 frames forward (~0.12s) for faster keyboard seeking
       } else if (e.code === "ArrowLeft") {
         e.preventDefault();
-        handleStep(-1); // One frame backward
+        handleStep(-3); // 3 frames backward
       }
     };
 
@@ -2568,6 +2577,20 @@ export const SyncDualPlayer: React.FC = () => {
               <span className={`text-xs font-semibold cursor-pointer ${isHorizontalLayout ? 'text-indigo-600' : 'text-gray-400'}`} onClick={() => setIsHorizontalLayout(true)}>Horizontal</span>
             </div>
           )}
+
+          <div className="flex items-center gap-2 ml-4 border-l border-gray-300 pl-4">
+            <button
+              onClick={() => setIsVideoBgLight(b => !b)}
+              title={isVideoBgLight ? "Zmień na ciemne tło wideo" : "Zmień na jasne tło wideo"}
+              className={`p-1.5 rounded-lg transition-colors border ${isVideoBgLight ? 'bg-slate-100 border-slate-300 text-slate-800' : 'bg-gray-800 border-gray-700 text-gray-200'}`}
+            >
+              {isVideoBgLight ? (
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" /></svg>
+              ) : (
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" /></svg>
+              )}
+            </button>
+          </div>
         </div>
 
         {/* ── Diff Mode Toolbar ── */}
@@ -2882,7 +2905,7 @@ export const SyncDualPlayer: React.FC = () => {
         <div className={isSinglePlayerMode && isHorizontalLayout ? "grid grid-cols-[3fr_2fr] gap-6 items-start" : "contents"}>
           <div className="min-w-0">
       {/* Video Panels Area */}
-      <div className={`grid grid-cols-1 ${isSinglePlayerMode ? '' : 'lg:grid-cols-2'} gap-6${isSinglePlayerMode && isHorizontalLayout ? '' : ' mb-8'}`}>
+      <div className={`grid grid-cols-1 ${isSinglePlayerMode ? '' : 'lg:grid-cols-2 gap-1'} ${isSinglePlayerMode && isHorizontalLayout ? '' : ' mb-8'}`}>
         
         {/* Acceptance Video Panel */}
         <div
@@ -2923,7 +2946,7 @@ export const SyncDualPlayer: React.FC = () => {
           </div>
 
           {/* Player Container */}
-          <div id="acceptance-container" className="p-4 bg-gray-50/40 relative aspect-video flex items-center justify-center">
+          <div id="acceptance-container" className="bg-gray-50/40 relative min-h-[300px] flex items-center justify-center overflow-hidden">
             {acceptanceLoading && (
               <div className="absolute inset-0 z-30 bg-gray-950/85 backdrop-blur-sm flex flex-col items-center justify-center text-white p-6 text-center transition-all duration-200">
                 <div className="animate-spin rounded-full h-12 w-12 border-4 border-green-500 border-t-transparent mb-4 shadow-lg shadow-green-500/20"></div>
@@ -2958,7 +2981,7 @@ export const SyncDualPlayer: React.FC = () => {
             {acceptanceFile ? (
               <video
                 ref={acceptanceVideoRef}
-                className={`w-full h-full object-contain bg-black rounded-lg ${(isEyedropperActive || isRulerActive || isOcrActive) && !isPlaying ? "cursor-crosshair" : ""}`}
+                className={`w-full h-full object-contain ${isVideoBgLight ? 'bg-slate-100 border border-gray-200' : 'bg-black'} ${(isEyedropperActive || isRulerActive || isOcrActive) && !isPlaying ? "cursor-crosshair" : ""}`}
                 src={acceptanceFile.url}
                 crossOrigin="anonymous"
                 preload="auto"
@@ -3079,7 +3102,7 @@ export const SyncDualPlayer: React.FC = () => {
           </div>
 
           {/* Player Container */}
-          <div id="emission-container" className="p-4 bg-gray-50/40 relative aspect-video flex items-center justify-center">
+          <div id="emission-container" className="bg-gray-50/40 relative min-h-[300px] flex items-center justify-center overflow-hidden">
             {emissionLoading && (
               <div className="absolute inset-0 z-30 bg-gray-950/85 backdrop-blur-sm flex flex-col items-center justify-center text-white p-6 text-center transition-all duration-200">
                 <div className="animate-spin rounded-full h-12 w-12 border-4 border-red-500 border-t-transparent mb-4 shadow-lg shadow-red-500/20"></div>
@@ -3114,7 +3137,7 @@ export const SyncDualPlayer: React.FC = () => {
             {emissionFile ? (
               <video
                 ref={emissionVideoRef}
-                className={`w-full h-full object-contain bg-black rounded-lg ${(isEyedropperActive || isRulerActive || isOcrActive) && !isPlaying ? "cursor-crosshair" : ""}`}
+                className={`w-full h-full object-contain ${isVideoBgLight ? 'bg-slate-100 border border-gray-200' : 'bg-black'} ${(isEyedropperActive || isRulerActive || isOcrActive) && !isPlaying ? "cursor-crosshair" : ""}`}
                 src={emissionFile.url}
                 crossOrigin="anonymous"
                 preload="auto"
