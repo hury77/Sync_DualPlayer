@@ -2789,7 +2789,7 @@ export const SyncDualPlayer: React.FC = () => {
             </span>
           </div>
           
-          <div className="p-5 grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className={`p-5 grid grid-cols-1 sm:grid-cols-3 gap-4${isSinglePlayerMode && isHorizontalLayout && isOcrActive ? ' hidden' : ''}`}>
             <div className={`p-4 rounded-xl border flex flex-col items-center justify-center text-center ${psQaResults ? (psQaResults.bing === 'FOUND' ? 'bg-green-50 border-green-200' : psQaResults.bing === 'INCORRECT' ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200') : 'bg-gray-50 border-gray-100'}`}>
               <span className="text-xs text-gray-500 uppercase tracking-wider mb-2 font-semibold">BING</span>
               {psQaResults?.expected_bing_b64 && (
@@ -2866,7 +2866,7 @@ export const SyncDualPlayer: React.FC = () => {
             </span>
           </div>
           
-          <div className="px-5 py-3 flex gap-1.5 flex-wrap content-start">
+          <div className={`px-5 py-3 flex gap-1.5 flex-wrap content-start${isSinglePlayerMode && isHorizontalLayout && isOcrActive ? ' hidden' : ''}`}>
             {copydeckData.languages.map((lang: string, idx: number) => (
               <span key={idx} className="px-1.5 py-0.5 bg-gray-50 text-gray-500 text-[10px] font-medium rounded border border-gray-100">
                 {lang}
