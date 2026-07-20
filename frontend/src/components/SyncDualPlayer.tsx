@@ -2505,7 +2505,7 @@ export const SyncDualPlayer: React.FC = () => {
   };
 
   return (
-    <div className={`${isSinglePlayerMode && !isHorizontalLayout ? 'max-w-7xl' : 'max-w-[100rem]'} mx-auto px-4 py-4 pb-4 transition-all duration-500`}>
+    <div className={`${isSinglePlayerMode && !isHorizontalLayout ? 'max-w-7xl mx-auto' : 'w-full'} px-4 py-4 pb-4 transition-all duration-500`}>
       {/* Eyedropper Tooltip */}
       {isEyedropperActive && hoverColor && (
         <div 
