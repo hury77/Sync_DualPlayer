@@ -2892,7 +2892,7 @@ export const SyncDualPlayer: React.FC = () => {
           onDrop={(e) => handleDrop(e, "acceptance")}
           className={`bg-white rounded-2xl shadow-sm border overflow-hidden transition-all duration-200 ${
             isDraggingAcceptance ? "border-green-500 ring-4 ring-green-100 scale-[1.01]" : "border-gray-200"
-          } ${isSinglePlayerMode ? "max-w-[90%] mx-auto w-full" : ""}`}
+          } ${isSinglePlayerMode && !isHorizontalLayout ? "max-w-[90%] mx-auto w-full" : isSinglePlayerMode ? "w-full" : ""}`}
         >
           {/* Header Panel */}
           <div className={`px-6 py-2 border-b border-gray-100 flex justify-between items-center h-[76px] ${
@@ -3521,7 +3521,7 @@ export const SyncDualPlayer: React.FC = () => {
             </div>
           )}
 
-          <div className="p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className={`p-6 grid gap-6 ${isSinglePlayerMode && isHorizontalLayout ? 'grid-cols-1' : 'grid-cols-1 lg:grid-cols-3'}`}>
             {/* Brief Input */}
             <div className="flex flex-col gap-2">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -3563,7 +3563,7 @@ export const SyncDualPlayer: React.FC = () => {
                 value={ocrBriefText}
                 onChange={(e) => setOcrBriefText(e.target.value)}
                 placeholder="Paste brief text here..."
-                className="w-full h-32 p-3 text-sm border border-gray-300 rounded-lg focus:ring-purple-500 focus:border-purple-500 resize-none font-mono"
+                className={`w-full p-3 text-sm border border-gray-300 rounded-lg focus:ring-purple-500 focus:border-purple-500 resize-none font-mono ${isSinglePlayerMode && isHorizontalLayout ? 'h-20' : 'h-32'}`}
               />
             </div>
             
@@ -3582,7 +3582,7 @@ export const SyncDualPlayer: React.FC = () => {
                 value={ocrTextAcceptance}
                 readOnly
                 placeholder="Text extracted from Acceptance video will appear here..."
-                className="w-full h-32 p-3 text-sm border border-gray-300 bg-gray-50 rounded-lg focus:outline-none resize-none font-mono"
+                className={`w-full p-3 text-sm border border-gray-300 bg-gray-50 rounded-lg focus:outline-none resize-none font-mono ${isSinglePlayerMode && isHorizontalLayout ? 'h-20' : 'h-32'}`}
               />
             </div>
             
@@ -3601,7 +3601,7 @@ export const SyncDualPlayer: React.FC = () => {
                 value={ocrTextEmission}
                 readOnly
                 placeholder="Text extracted from Emission video will appear here..."
-                className="w-full h-32 p-3 text-sm border border-gray-300 bg-gray-50 rounded-lg focus:outline-none resize-none font-mono"
+                className={`w-full p-3 text-sm border border-gray-300 bg-gray-50 rounded-lg focus:outline-none resize-none font-mono ${isSinglePlayerMode && isHorizontalLayout ? 'h-20' : 'h-32'}`}
               />
             </div>
           </div>
