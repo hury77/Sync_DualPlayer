@@ -2946,7 +2946,7 @@ export const SyncDualPlayer: React.FC = () => {
           </div>
 
           {/* Player Container */}
-          <div id="acceptance-container" className="bg-gray-50/40 relative min-h-[300px] flex items-center justify-center overflow-hidden">
+          <div id="acceptance-container" className={`relative flex items-center min-h-[300px] overflow-hidden ${!isSinglePlayerMode ? 'justify-end' : 'justify-center'} ${isVideoBgLight ? 'bg-slate-100 border-b border-gray-200' : 'bg-black'}`}>
             {acceptanceLoading && (
               <div className="absolute inset-0 z-30 bg-gray-950/85 backdrop-blur-sm flex flex-col items-center justify-center text-white p-6 text-center transition-all duration-200">
                 <div className="animate-spin rounded-full h-12 w-12 border-4 border-green-500 border-t-transparent mb-4 shadow-lg shadow-green-500/20"></div>
@@ -2981,7 +2981,7 @@ export const SyncDualPlayer: React.FC = () => {
             {acceptanceFile ? (
               <video
                 ref={acceptanceVideoRef}
-                className={`w-full h-full object-contain ${isVideoBgLight ? 'bg-slate-100 border border-gray-200' : 'bg-black'} ${(isEyedropperActive || isRulerActive || isOcrActive) && !isPlaying ? "cursor-crosshair" : ""}`}
+                className={`max-w-full h-auto max-h-[70vh] object-contain ${(isEyedropperActive || isRulerActive || isOcrActive) && !isPlaying ? "cursor-crosshair" : ""}`}
                 src={acceptanceFile.url}
                 crossOrigin="anonymous"
                 preload="auto"
@@ -2999,7 +2999,7 @@ export const SyncDualPlayer: React.FC = () => {
                 }}
               />
             ) : (
-              <div className="w-full h-full border-2 border-dashed border-gray-300 rounded-xl flex flex-col items-center justify-center p-6 text-center text-gray-400 bg-white">
+              <div className="w-full min-h-[300px] border-2 border-dashed border-gray-300 rounded-xl flex flex-col items-center justify-center p-6 text-center text-gray-400 bg-white">
                 <ArrowUpTrayIcon className="w-12 h-12 text-gray-300 mb-3" />
                 <p className="text-sm font-semibold text-gray-700">Drag and drop Acceptance video</p>
                 <p className="text-xs text-gray-400 mt-1">Supports MP4, MOV, MXF</p>
@@ -3077,7 +3077,7 @@ export const SyncDualPlayer: React.FC = () => {
           onDrop={(e) => handleDrop(e, "emission")}
           className={`bg-white rounded-2xl shadow-sm border overflow-hidden transition-all duration-200 ${
             isDraggingEmission ? "border-red-500 ring-4 ring-red-100 scale-[1.01]" : "border-gray-200"
-          }`}
+          } ${isSinglePlayerMode && !isHorizontalLayout ? "max-w-[90%] mx-auto w-full" : isSinglePlayerMode ? "w-full" : ""}`}
         >
           {/* Header Panel */}
           <div className="px-6 py-2 border-b border-gray-100 bg-red-50/50 flex justify-between items-center h-[76px]">
@@ -3102,7 +3102,7 @@ export const SyncDualPlayer: React.FC = () => {
           </div>
 
           {/* Player Container */}
-          <div id="emission-container" className="bg-gray-50/40 relative min-h-[300px] flex items-center justify-center overflow-hidden">
+          <div id="emission-container" className={`relative flex items-center min-h-[300px] overflow-hidden ${!isSinglePlayerMode ? 'justify-start' : 'justify-center'} ${isVideoBgLight ? 'bg-slate-100 border-b border-gray-200' : 'bg-black'}`}>
             {emissionLoading && (
               <div className="absolute inset-0 z-30 bg-gray-950/85 backdrop-blur-sm flex flex-col items-center justify-center text-white p-6 text-center transition-all duration-200">
                 <div className="animate-spin rounded-full h-12 w-12 border-4 border-red-500 border-t-transparent mb-4 shadow-lg shadow-red-500/20"></div>
@@ -3137,7 +3137,7 @@ export const SyncDualPlayer: React.FC = () => {
             {emissionFile ? (
               <video
                 ref={emissionVideoRef}
-                className={`w-full h-full object-contain ${isVideoBgLight ? 'bg-slate-100 border border-gray-200' : 'bg-black'} ${(isEyedropperActive || isRulerActive || isOcrActive) && !isPlaying ? "cursor-crosshair" : ""}`}
+                className={`max-w-full h-auto max-h-[70vh] object-contain ${(isEyedropperActive || isRulerActive || isOcrActive) && !isPlaying ? "cursor-crosshair" : ""}`}
                 src={emissionFile.url}
                 crossOrigin="anonymous"
                 preload="auto"
@@ -3155,7 +3155,7 @@ export const SyncDualPlayer: React.FC = () => {
                 }}
               />
             ) : (
-              <div className="w-full h-full border-2 border-dashed border-gray-300 rounded-xl flex flex-col items-center justify-center p-6 text-center text-gray-400 bg-white">
+              <div className="w-full min-h-[300px] border-2 border-dashed border-gray-300 rounded-xl flex flex-col items-center justify-center p-6 text-center text-gray-400 bg-white">
                 <ArrowUpTrayIcon className="w-12 h-12 text-gray-300 mb-3" />
                 <p className="text-sm font-semibold text-gray-700">Drag and drop Emission video</p>
                 <p className="text-xs text-gray-400 mt-1">Supports MP4, MOV, MXF</p>
