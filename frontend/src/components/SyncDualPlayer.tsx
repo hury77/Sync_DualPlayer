@@ -197,6 +197,7 @@ export const SyncDualPlayer: React.FC = () => {
 
   // ── Single Player Mode State ────────────────────────────────────────────────
   const [isSinglePlayerMode, setIsSinglePlayerMode] = useState(false);
+  const [isHorizontalLayout, setIsHorizontalLayout] = useState(false);
 
   
 
@@ -2495,7 +2496,7 @@ export const SyncDualPlayer: React.FC = () => {
   };
 
   return (
-    <div className={`${isSinglePlayerMode ? 'max-w-7xl' : 'max-w-[100rem]'} mx-auto px-6 py-6 pb-20 transition-all duration-500`}>
+    <div className={`${isSinglePlayerMode && !isHorizontalLayout ? 'max-w-7xl' : 'max-w-[100rem]'} mx-auto px-4 py-4 pb-4 transition-all duration-500`}>
       {/* Eyedropper Tooltip */}
       {isEyedropperActive && hoverColor && (
         <div 
@@ -2557,6 +2558,16 @@ export const SyncDualPlayer: React.FC = () => {
           </button>
           
           <span className={`text-sm font-semibold transition-colors cursor-pointer ${isSinglePlayerMode ? 'text-purple-600' : 'text-gray-400'}`} onClick={() => { setIsSinglePlayerMode(true); if (diffMode) deactivateDiffMode(); }}>Single</span>
+
+          {isSinglePlayerMode && (
+            <div className="flex items-center gap-2 ml-4 border-l border-gray-300 pl-4">
+              <span className={`text-xs font-semibold cursor-pointer ${!isHorizontalLayout ? 'text-gray-900' : 'text-gray-400'}`} onClick={() => setIsHorizontalLayout(false)}>Vertical</span>
+              <button onClick={() => setIsHorizontalLayout(h => !h)} className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${isHorizontalLayout ? 'bg-indigo-500' : 'bg-gray-300'}`}>
+                <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${isHorizontalLayout ? 'translate-x-5' : 'translate-x-1'}`} />
+              </button>
+              <span className={`text-xs font-semibold cursor-pointer ${isHorizontalLayout ? 'text-indigo-600' : 'text-gray-400'}`} onClick={() => setIsHorizontalLayout(true)}>Horizontal</span>
+            </div>
+          )}
         </div>
 
         {/* ── Diff Mode Toolbar ── */}
@@ -2754,9 +2765,15 @@ export const SyncDualPlayer: React.FC = () => {
       )}
 
 
+      {/* ── Main Content Area ── */}
+      <div className={isSinglePlayerMode && isHorizontalLayout ? "flex flex-col gap-4" : "flex flex-col gap-6"}>
+
+        {/* Row 1: PS QA (narrow left) + Copydeck (wide right) */}
+        <div className={isSinglePlayerMode && isHorizontalLayout ? "grid grid-cols-[minmax(0,5fr)_minmax(0,7fr)] gap-6 items-stretch" : "contents"}>
+          <div className={isSinglePlayerMode && isHorizontalLayout ? "h-full" : ""}>
       {/* ── Playstation QA Results Panel ── */}
       {isSinglePlayerMode && psQaMetadata && (
-        <div className="mb-6 bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+        <div className={`bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden${isSinglePlayerMode && isHorizontalLayout ? " h-full" : " mb-6"}`}>
           <div className="px-5 py-3 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-slate-50">
             <span className="text-sm font-bold text-slate-800 flex items-center gap-2">
               <span className="bg-blue-600 text-white text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider">PS Audit</span>
@@ -2835,8 +2852,10 @@ export const SyncDualPlayer: React.FC = () => {
       )}
 
       {/* ── Copydeck Results Panel ── */}
+          </div>
+          <div className={isSinglePlayerMode && isHorizontalLayout ? "h-full" : ""}>
       {copydeckData && (
-        <div className="mb-6 bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+        <div className={`bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden${isSinglePlayerMode && isHorizontalLayout ? " h-full" : " mb-6"}`}>
           <div className="px-5 py-3 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-indigo-50">
             <span className="text-sm font-bold text-indigo-900 flex items-center gap-2">
               <span className="bg-indigo-600 text-white text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider">Excel Parser</span>
@@ -2847,20 +2866,23 @@ export const SyncDualPlayer: React.FC = () => {
             </span>
           </div>
           
-          <div className="p-5 flex gap-2 flex-wrap">
+          <div className="px-5 py-3 flex gap-1.5 flex-wrap content-start">
             {copydeckData.languages.map((lang: string, idx: number) => (
-              <span key={idx} className="px-3 py-1 bg-gray-100 text-gray-700 text-xs font-semibold rounded-full border border-gray-200">
+              <span key={idx} className="px-1.5 py-0.5 bg-gray-50 text-gray-500 text-[10px] font-medium rounded border border-gray-100">
                 {lang}
               </span>
             ))}
           </div>
         </div>
       )}
+          </div>
+        </div>
 
-
-
+        {/* Row 2: Video (left, 50%) + OCR (right, 50%, aligned top) */}
+        <div className={isSinglePlayerMode && isHorizontalLayout ? "grid grid-cols-[3fr_2fr] gap-6 items-start" : "contents"}>
+          <div>
       {/* Video Panels Area */}
-      <div className={`grid grid-cols-1 ${isSinglePlayerMode ? '' : 'lg:grid-cols-2'} gap-6 mb-8`}>
+      <div className={`grid grid-cols-1 ${isSinglePlayerMode ? '' : 'lg:grid-cols-2'} gap-6${isSinglePlayerMode && isHorizontalLayout ? '' : ' mb-8'}`}>
         
         {/* Acceptance Video Panel */}
         <div
@@ -3404,72 +3426,69 @@ export const SyncDualPlayer: React.FC = () => {
           </div>
         </div>
       </div>
-
+          </div>
+          <div>
       {/* OCR / Compare Copy Panel */}
       {isOcrActive && (
-        <div id="ocr-panel-container" className="mt-8 bg-white rounded-2xl shadow-sm border border-purple-200 overflow-hidden">
-          <div className="px-6 py-4 border-b border-purple-100 bg-purple-50/50 flex justify-between items-center">
-            <h3 className="font-semibold text-purple-900 flex items-center gap-2">
+        <div id="ocr-panel-container" className={`bg-white rounded-2xl shadow-sm border border-purple-200 flex flex-col${isSinglePlayerMode && isHorizontalLayout ? " max-h-[80vh] overflow-hidden" : " mt-8 overflow-hidden"}`}>
+          <div className="px-4 py-3 border-b border-purple-100 bg-purple-50/50 flex flex-wrap items-center gap-x-3 gap-y-2">
+            <h3 className="font-semibold text-purple-900 flex items-center gap-2 mr-2">
               <DocumentTextIcon className="w-5 h-5" /> Compare Copy (OCR)
             </h3>
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-purple-700 font-semibold">Czułość kontrastu:</span>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-purple-700 font-semibold whitespace-nowrap">Contrast:</span>
                 <input 
                   type="range" 
                   min="0" max="127" 
                   value={ocrContrast} 
                   onChange={(e) => setOcrContrast(Number(e.target.value))}
-                  className="w-24 accent-purple-600"
-                  title={`Kontrast (0 = oryginalny, 127 = binarny): ${ocrContrast}`}
+                  className="w-20 accent-purple-600"
+                  title={`Contrast (0 = original, 127 = binary): ${ocrContrast}`}
                 />
               </div>
 
-              <div className="w-px h-4 bg-purple-200 mx-1"></div>
-
-              <label className="flex items-center gap-1.5 text-xs text-purple-800 cursor-pointer hover:bg-purple-100 px-2 py-1 rounded transition-colors">
+              <label className="flex items-center gap-1 text-xs text-purple-800 cursor-pointer hover:bg-purple-100 px-1.5 py-0.5 rounded transition-colors whitespace-nowrap">
                 <input 
                   type="checkbox" 
                   checked={ocrInvertColors}
                   onChange={(e) => setOcrInvertColors(e.target.checked)}
                   className="rounded text-purple-600 focus:ring-purple-500 w-3 h-3 cursor-pointer"
                 />
-                Jasny tekst na ciemnym tle (odwróć kolory)
+                Invert
               </label>
-              
-              <div className="w-px h-4 bg-purple-200 mx-1"></div>
 
-              <span className="text-xs font-semibold text-purple-700">Język:</span>
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-semibold text-purple-700 whitespace-nowrap">Lang:</span>
                 <select 
                   value={ocrLanguage}
                   onChange={(e) => setOcrLanguage(e.target.value)}
                   className="text-xs border-purple-200 rounded px-2 py-1 bg-white focus:ring-purple-500 text-purple-900 cursor-pointer"
                 >
-                  <option value="eng+pol">Auto (Angielski + Polski)</option>
+                  <option value="eng+pol">Auto (EN + PL)</option>
                   {Object.entries(LANGUAGE_TO_TESSERACT)
                     .map(([name, code]) => ({ name, code }))
                     .filter((val, index, self) => index === self.findIndex((t) => t.name === val.name))
                     .map(({ name, code }) => (
                     <option key={name} value={code}>{name}</option>
                   ))}
-                  <option value="custom">Inny (Wpisz kod ISO)...</option>
+                  <option value="custom">Other (ISO code)...</option>
                 </select>
                 {ocrLanguage === "custom" && (
                   <input
                     type="text"
                     value={ocrCustomLanguage}
                     onChange={(e) => setOcrCustomLanguage(e.target.value.toLowerCase().replace(/[^a-z]/g, ''))}
-                    placeholder="np. ell"
+                    placeholder="e.g. ell"
                     className="w-16 text-xs border-purple-200 rounded px-2 py-1 focus:ring-purple-500 text-purple-900"
                     maxLength={3}
-                    title="Podaj 3-literowy kod języka (ISO 639-2)"
+                    title="Enter 3-letter ISO 639-2 language code"
                   />
                 )}
               </div>
             </div>
           </div>
-          
+          <div className="flex-1 overflow-y-auto">
           {/* Live Camera Feed Previews */}
           {(ocrPreviewAcceptance || ocrPreviewEmission) && (
             <div className="bg-gray-900 border-b border-gray-800 p-6 flex flex-col md:flex-row gap-6">
@@ -3478,7 +3497,7 @@ export const SyncDualPlayer: React.FC = () => {
                   <div className="flex justify-between items-center px-1">
                     <span className="text-[10px] uppercase font-bold text-green-400 tracking-wider flex items-center gap-1.5">
                       <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
-                      LIVE OCR FEED (ACCEPTANCE)
+                      LIVE FEED (ACCEPTANCE)
                     </span>
                   </div>
                   <div className="w-full flex items-center justify-center bg-black rounded-xl border border-gray-700 shadow-inner overflow-hidden" style={{ minHeight: "150px", maxHeight: "350px" }}>
@@ -3491,7 +3510,7 @@ export const SyncDualPlayer: React.FC = () => {
                   <div className="flex justify-between items-center px-1">
                     <span className="text-[10px] uppercase font-bold text-red-400 tracking-wider flex items-center gap-1.5">
                       <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
-                      LIVE OCR FEED (EMISSION)
+                      LIVE FEED (EMISSION)
                     </span>
                   </div>
                   <div className="w-full flex items-center justify-center bg-black rounded-xl border border-gray-700 shadow-inner overflow-hidden" style={{ minHeight: "150px", maxHeight: "350px" }}>
@@ -3502,11 +3521,11 @@ export const SyncDualPlayer: React.FC = () => {
             </div>
           )}
 
-          <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Brief Input */}
             <div className="flex flex-col gap-2">
-              <div className="flex items-center justify-between">
-                <label className="text-sm font-semibold text-gray-700">Skopiowany Brief (wklej tutaj)</label>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <label className="text-sm font-semibold text-gray-700">Brief text</label>
                 {copydeckData && copydeckData.languages && copydeckData.languages.length > 0 && (
                   <select
                     className="text-xs border-indigo-200 rounded px-2 py-1 bg-indigo-50 focus:ring-indigo-500 text-indigo-900 cursor-pointer"
@@ -3515,17 +3534,15 @@ export const SyncDualPlayer: React.FC = () => {
                       const lang = e.target.value;
                       setSelectedCopydeckLanguage(lang);
                       if (lang && copydeckData.data[lang]) {
-                        // Extract all target values for this language
                         const translations = Object.values(copydeckData.data[lang]) as string[];
                         setAvailableCopydeckLines(translations);
                         
                         if (translations.length > 0) {
-                          setOcrBriefText(translations[0]); // domyślnie pierwszy wiersz
+                          setOcrBriefText(translations[0]);
                         } else {
                           setOcrBriefText("");
                         }
                         
-                        // Auto-sync OCR language with copydeck language if we have a match
                         if (LANGUAGE_TO_TESSERACT[lang]) {
                           setOcrLanguage(LANGUAGE_TO_TESSERACT[lang]);
                         }
@@ -3535,7 +3552,7 @@ export const SyncDualPlayer: React.FC = () => {
                       }
                     }}
                   >
-                    <option value="">-- Wypełnij z Copydecku --</option>
+                    <option value="">-- Copydeck --</option>
                     {copydeckData.languages.map((l: string) => (
                       <option key={l} value={l}>{l}</option>
                     ))}
@@ -3545,7 +3562,7 @@ export const SyncDualPlayer: React.FC = () => {
               <textarea 
                 value={ocrBriefText}
                 onChange={(e) => setOcrBriefText(e.target.value)}
-                placeholder="Wklej tekst z briefu (PPTX/Word) do porównania..."
+                placeholder="Paste brief text here..."
                 className="w-full h-32 p-3 text-sm border border-gray-300 rounded-lg focus:ring-purple-500 focus:border-purple-500 resize-none font-mono"
               />
             </div>
@@ -3624,7 +3641,7 @@ export const SyncDualPlayer: React.FC = () => {
                 ) : (
                   <DocumentTextIcon className="w-5 h-5" />
                 )}
-                {isOcrProcessing ? (ocrProgressMessage || "Zczytywanie i analiza...") : "Zczytaj teksty i porównaj"}
+                {isOcrProcessing ? (ocrProgressMessage || "Processing...") : "Run OCR & Compare"}
               </button>
             </div>
             
@@ -3679,8 +3696,13 @@ export const SyncDualPlayer: React.FC = () => {
               </div>
             )}
           </div>
+          </div>
         </div>
       )}
+          </div>
+        </div>
+
+      </div>
 
       {/* Pending Report Modal (Add Comment) */}
       {pendingReportItem && (
