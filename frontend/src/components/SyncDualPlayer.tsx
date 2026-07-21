@@ -2798,12 +2798,26 @@ export const SyncDualPlayer: React.FC = () => {
                 <span className="w-3 h-3 rounded-sm bg-yellow-400 inline-block ml-2" /> Do sprawdzenia
               </span>
             </div>
-            <button
-              onClick={() => analyzeCurrentFrame()}
-              className="text-xs px-3 py-1 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 transition-colors"
-            >
-              Odśwież klatkę
-            </button>
+            <div className="flex items-center gap-4">
+              {diffViewMode === "heatmap" && (
+                <div className="flex items-center gap-2 mr-2">
+                  <span className="text-xs text-gray-400">Ściemnienie:</span>
+                  <input
+                    type="range" min={0} max={100} step={1}
+                    value={heatmapOpacity}
+                    onChange={(e) => setHeatmapOpacity(parseInt(e.target.value))}
+                    className="w-32 h-1.5 appearance-none bg-gray-700 rounded accent-red-500 cursor-pointer"
+                  />
+                  <span className="text-xs text-gray-400 font-mono w-8">{heatmapOpacity}%</span>
+                </div>
+              )}
+              <button
+                onClick={() => analyzeCurrentFrame()}
+                className="text-xs px-3 py-1 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 transition-colors whitespace-nowrap"
+              >
+                Odśwież klatkę
+              </button>
+            </div>
           </div>
 
           {/* Wipe container — canvas-based, reads directly from main video refs.
@@ -2823,32 +2837,19 @@ export const SyncDualPlayer: React.FC = () => {
             />
           </div>
 
-          {/* Slider for selected mode */}
-          <div className="px-5 py-3 border-t border-gray-800 flex items-center gap-4">
-            {diffViewMode === "wipe" ? (
-              <>
-                <span className="text-xs text-gray-400 w-16">Pozycja:</span>
-                <input
-                  type="range" min={0} max={100} step={0.5}
-                  value={wipePosition}
-                  onChange={(e) => setWipePosition(parseFloat(e.target.value))}
-                  className="flex-grow h-1.5 appearance-none bg-gray-700 rounded accent-white cursor-pointer"
-                />
-                <span className="text-xs text-gray-400 w-10 text-right font-mono">{wipePosition.toFixed(0)}%</span>
-              </>
-            ) : (
-              <>
-                <span className="text-xs text-gray-400 w-16">Ściemnienie:</span>
-                <input
-                  type="range" min={0} max={100} step={1}
-                  value={heatmapOpacity}
-                  onChange={(e) => setHeatmapOpacity(parseInt(e.target.value))}
-                  className="flex-grow h-1.5 appearance-none bg-gray-700 rounded accent-red-500 cursor-pointer"
-                />
-                <span className="text-xs text-gray-400 w-10 text-right font-mono">{heatmapOpacity}%</span>
-              </>
-            )}
-          </div>
+          {/* Wipe position slider (only visible in Wipe mode) */}
+          {diffViewMode === "wipe" && (
+            <div className="px-5 py-3 border-t border-gray-800 flex items-center gap-4">
+              <span className="text-xs text-gray-400 w-16">Pozycja:</span>
+              <input
+                type="range" min={0} max={100} step={0.5}
+                value={wipePosition}
+                onChange={(e) => setWipePosition(parseFloat(e.target.value))}
+                className="flex-grow h-1.5 appearance-none bg-gray-700 rounded accent-white cursor-pointer"
+              />
+              <span className="text-xs text-gray-400 w-10 text-right font-mono">{wipePosition.toFixed(0)}%</span>
+            </div>
+          )}
         </div>
       )}
 
