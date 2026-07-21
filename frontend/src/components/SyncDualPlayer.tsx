@@ -134,6 +134,19 @@ export const SyncDualPlayer: React.FC = () => {
   const [rulerLines, setRulerLines] = useState<RulerLine[]>([]);
   const [activeRulerLine, setActiveRulerLine] = useState<RulerLine | null>(null);
 
+  // ── Interaction States ────────────────────────────────────────────────────
+  type DragHandleState = {
+    component: "ocr" | "ruler";
+    sourceVideo: "acceptance" | "emission";
+    type: "tl" | "tr" | "bl" | "br" | "move" | "start" | "end";
+    index?: number;
+    initialBox?: {startX: number, startY: number, endX: number, endY: number};
+    initialRuler?: RulerLine;
+    initialMouseX: number;
+    initialMouseY: number;
+  };
+  const [dragHandle, setDragHandle] = useState<DragHandleState | null>(null);
+
   // OCR / Compare Copy States
   const [isOcrActive, setIsOcrActive] = useState(false);
   const [ocrLanguage, setOcrLanguage] = useState("eng+pol"); // default to multi-language
@@ -200,6 +213,7 @@ export const SyncDualPlayer: React.FC = () => {
 
   // ── Single Player Mode State ────────────────────────────────────────────────
   const [isSinglePlayerMode, setIsSinglePlayerMode] = useState(false);
+  const [singlePlayerSource, setSinglePlayerSource] = useState<"acceptance" | "emission">("acceptance");
   const [isHorizontalLayout, setIsHorizontalLayout] = useState(false);
   const [isVideoBgLight, setIsVideoBgLight] = useState(false);
   const [acceptanceCustomName, setAcceptanceCustomName] = useState("Video 1");
@@ -486,6 +500,11 @@ export const SyncDualPlayer: React.FC = () => {
   // Diff overlay refs
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
   const diffWorkerRef = useRef<Worker | null>(null);
+  const [showDiffHighlights, setShowDiffHighlights] = useState(true);
+  const showDiffHighlightsRef = useRef(true);
+  useEffect(() => {
+    showDiffHighlightsRef.current = showDiffHighlights;
+  }, [showDiffHighlights]);
   const analysisIntervalRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wipeContainerRef = useRef<HTMLDivElement>(null);
   const isDraggingWipeRef = useRef(false);
@@ -899,7 +918,7 @@ export const SyncDualPlayer: React.FC = () => {
     }).catch(err => console.error("Error clearing QA assets:", err));
   };
 
-  const getMouseSourceCoordinates = (e: React.MouseEvent<HTMLVideoElement>, videoRef: React.RefObject<HTMLVideoElement | null>) => {
+  const getMouseSourceCoordinates = (clientX: number, clientY: number, videoRef: React.RefObject<HTMLVideoElement | null>) => {
     const video = videoRef.current;
     if (!video || video.readyState < 2) return null;
 
@@ -918,24 +937,96 @@ export const SyncDualPlayer: React.FC = () => {
       offsetY = (rect.height - renderedHeight) / 2;
     }
 
-    const mouseX = e.clientX - rect.left - offsetX;
-    const mouseY = e.clientY - rect.top - offsetY;
+    const mouseX = clientX - rect.left - offsetX;
+    const mouseY = clientY - rect.top - offsetY;
 
-    if (mouseX < 0 || mouseX > renderedWidth || mouseY < 0 || mouseY > renderedHeight) {
-      return null;
-    }
+    // Remove strict bounds check to allow dragging handles slightly outside
+    const boundedMouseX = Math.max(0, Math.min(mouseX, renderedWidth));
+    const boundedMouseY = Math.max(0, Math.min(mouseY, renderedHeight));
 
-    const sourceX = (mouseX / renderedWidth) * video.videoWidth;
-    const sourceY = (mouseY / renderedHeight) * video.videoHeight;
+    const sourceX = (boundedMouseX / renderedWidth) * video.videoWidth;
+    const sourceY = (boundedMouseY / renderedHeight) * video.videoHeight;
 
     return { sourceX, sourceY, video, renderedWidth, renderedHeight, offsetX, offsetY, rect };
   };
+
+  useEffect(() => {
+    if (!dragHandle) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      e.preventDefault();
+      const videoRef = dragHandle.sourceVideo === "acceptance" ? acceptanceVideoRef : emissionVideoRef;
+      const coords = getMouseSourceCoordinates(e.clientX, e.clientY, videoRef);
+      if (!coords) return;
+
+      if (dragHandle.component === "ocr" && dragHandle.initialBox) {
+        const setBox = dragHandle.sourceVideo === "acceptance" ? setOcrBoxAcceptance : setOcrBoxEmission;
+        const box = { ...dragHandle.initialBox };
+        
+        if (dragHandle.type === "move") {
+          const startCoords = getMouseSourceCoordinates(dragHandle.initialMouseX, dragHandle.initialMouseY, videoRef);
+          if (!startCoords) return;
+          const dx = coords.sourceX - startCoords.sourceX;
+          const dy = coords.sourceY - startCoords.sourceY;
+          box.startX += dx;
+          box.startY += dy;
+          box.endX += dx;
+          box.endY += dy;
+        } else {
+          const minX = Math.min(box.startX, box.endX);
+          const minY = Math.min(box.startY, box.endY);
+          const maxX = Math.max(box.startX, box.endX);
+          const maxY = Math.max(box.startY, box.endY);
+          
+          if (dragHandle.type === "tl") { box.startX = coords.sourceX; box.startY = coords.sourceY; box.endX = maxX; box.endY = maxY; }
+          if (dragHandle.type === "tr") { box.endX = coords.sourceX; box.startY = coords.sourceY; box.startX = minX; box.endY = maxY; }
+          if (dragHandle.type === "bl") { box.startX = coords.sourceX; box.endY = coords.sourceY; box.endX = maxX; box.startY = minY; }
+          if (dragHandle.type === "br") { box.endX = coords.sourceX; box.endY = coords.sourceY; box.startX = minX; box.startY = minY; }
+        }
+        setBox(box);
+      } else if (dragHandle.component === "ruler" && dragHandle.initialRuler && dragHandle.index !== undefined) {
+        const line = { ...dragHandle.initialRuler };
+        if (dragHandle.type === "move") {
+          const startCoords = getMouseSourceCoordinates(dragHandle.initialMouseX, dragHandle.initialMouseY, videoRef);
+          if (!startCoords) return;
+          const dx = coords.sourceX - startCoords.sourceX;
+          const dy = coords.sourceY - startCoords.sourceY;
+          line.startX += dx;
+          line.startY += dy;
+          line.endX += dx;
+          line.endY += dy;
+        } else if (dragHandle.type === "start") {
+          line.startX = coords.sourceX;
+          line.startY = coords.sourceY;
+        } else if (dragHandle.type === "end") {
+          line.endX = coords.sourceX;
+          line.endY = coords.sourceY;
+        }
+        setRulerLines(prev => {
+          const updated = [...prev];
+          updated[dragHandle.index!] = line;
+          return updated;
+        });
+      }
+    };
+
+    const handleMouseUp = () => {
+      setDragHandle(null);
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [dragHandle]);
 
   const handleVideoMouseDown = (e: React.MouseEvent<HTMLVideoElement>, videoRef: React.RefObject<HTMLVideoElement | null>) => {
     if (isPlaying) return;
 
     if (isRulerActive) {
-      const coords = getMouseSourceCoordinates(e, videoRef);
+      const coords = getMouseSourceCoordinates(e.clientX, e.clientY, videoRef);
       if (!coords) return;
       const sourceVideo = videoRef === acceptanceVideoRef ? "acceptance" : "emission";
       
@@ -951,7 +1042,7 @@ export const SyncDualPlayer: React.FC = () => {
     }
 
     if (isOcrActive) {
-      const coords = getMouseSourceCoordinates(e, videoRef);
+      const coords = getMouseSourceCoordinates(e.clientX, e.clientY, videoRef);
       if (!coords) return;
       const sourceVideo = videoRef === acceptanceVideoRef ? "acceptance" : "emission";
       
@@ -966,7 +1057,7 @@ export const SyncDualPlayer: React.FC = () => {
     }
 
     if (isEyedropperActive) {
-      const coords = getMouseSourceCoordinates(e, videoRef);
+      const coords = getMouseSourceCoordinates(e.clientX, e.clientY, videoRef);
       if (!coords) return;
       const { sourceX, sourceY, video } = coords;
       const sourceVideo = videoRef === acceptanceVideoRef ? "acceptance" : "emission";
@@ -994,7 +1085,7 @@ export const SyncDualPlayer: React.FC = () => {
 
   const handleVideoMouseMove = (e: React.MouseEvent<HTMLVideoElement>, videoRef: React.RefObject<HTMLVideoElement | null>) => {
     if (isRulerActive && activeRulerLine && !isPlaying) {
-      const coords = getMouseSourceCoordinates(e, videoRef);
+      const coords = getMouseSourceCoordinates(e.clientX, e.clientY, videoRef);
       if (coords) {
         setActiveRulerLine({
           ...activeRulerLine,
@@ -1005,7 +1096,7 @@ export const SyncDualPlayer: React.FC = () => {
     }
 
     if (isOcrActive && activeOcrBox && !isPlaying) {
-      const coords = getMouseSourceCoordinates(e, videoRef);
+      const coords = getMouseSourceCoordinates(e.clientX, e.clientY, videoRef);
       if (coords) {
         setActiveOcrBox({
           ...activeOcrBox,
@@ -1021,7 +1112,7 @@ export const SyncDualPlayer: React.FC = () => {
       return;
     }
     
-    const coords = getMouseSourceCoordinates(e, videoRef);
+    const coords = getMouseSourceCoordinates(e.clientX, e.clientY, videoRef);
     if (!coords) return;
     
     const { sourceX, sourceY, video } = coords;
@@ -1429,7 +1520,7 @@ export const SyncDualPlayer: React.FC = () => {
         }
 
         // 3. Diff overlay
-        if (overlayCanvas && overlayCanvas.width > 0) {
+        if (overlayCanvas && overlayCanvas.width > 0 && showDiffHighlightsRef.current) {
           ctx.globalAlpha = 0.72;
           ctx.globalCompositeOperation = "source-over";
           drawWithLetterbox(ctx, overlayCanvas);
@@ -1442,18 +1533,20 @@ export const SyncDualPlayer: React.FC = () => {
           drawWithLetterbox(ctx, emiVideo);
         }
 
-        // 2. Draw black mask for opacity
-        const opacity = heatmapOpacityRef.current / 100;
-        if (opacity > 0) {
-          ctx.fillStyle = `rgba(0, 0, 0, ${opacity})`;
-          ctx.fillRect(0, 0, W, H);
-        }
+        if (showDiffHighlightsRef.current) {
+          // 2. Draw black mask for opacity
+          const opacity = heatmapOpacityRef.current / 100;
+          if (opacity > 0) {
+            ctx.fillStyle = `rgba(0, 0, 0, ${opacity})`;
+            ctx.fillRect(0, 0, W, H);
+          }
 
-        // 3. Draw Diff overlay clearly on top
-        if (overlayCanvas && overlayCanvas.width > 0) {
-          ctx.globalAlpha = 1.0;
-          ctx.globalCompositeOperation = "source-over";
-          drawWithLetterbox(ctx, overlayCanvas);
+          // 3. Draw Diff overlay clearly on top
+          if (overlayCanvas && overlayCanvas.width > 0) {
+            ctx.globalAlpha = 1.0;
+            ctx.globalCompositeOperation = "source-over";
+            drawWithLetterbox(ctx, overlayCanvas);
+          }
         }
       }
 
@@ -2452,9 +2545,11 @@ export const SyncDualPlayer: React.FC = () => {
 
           return (
             <g key={i}>
-              <line x1={start.x} y1={start.y} x2={end.x} y2={end.y} stroke={line.color} strokeWidth="2" strokeDasharray="4 2" />
-              <polygon points={`${start.x},${start.y} ${p1.x},${p1.y} ${p2.x},${p2.y}`} fill={line.color} />
-              <polygon points={`${end.x},${end.y} ${p3.x},${p3.y} ${p4.x},${p4.y}`} fill={line.color} />
+              <line x1={start.x} y1={start.y} x2={end.x} y2={end.y} stroke={line.color} strokeWidth="2" strokeDasharray="4 2" className="pointer-events-auto cursor-move" onMouseDown={(e) => { e.stopPropagation(); setDragHandle({ component: "ruler", sourceVideo, type: "move", index: i, initialRuler: line, initialMouseX: e.clientX, initialMouseY: e.clientY }); }} />
+              <circle cx={start.x} cy={start.y} r="5" fill="white" stroke={line.color} strokeWidth="2" className="pointer-events-auto cursor-pointer" onMouseDown={(e) => { e.stopPropagation(); setDragHandle({ component: "ruler", sourceVideo, type: "start", index: i, initialRuler: line, initialMouseX: e.clientX, initialMouseY: e.clientY }); }} />
+              <circle cx={end.x} cy={end.y} r="5" fill="white" stroke={line.color} strokeWidth="2" className="pointer-events-auto cursor-pointer" onMouseDown={(e) => { e.stopPropagation(); setDragHandle({ component: "ruler", sourceVideo, type: "end", index: i, initialRuler: line, initialMouseX: e.clientX, initialMouseY: e.clientY }); }} />
+              <polygon points={`${start.x},${start.y} ${p1.x},${p1.y} ${p2.x},${p2.y}`} fill={line.color} className="pointer-events-none" />
+              <polygon points={`${end.x},${end.y} ${p3.x},${p3.y} ${p4.x},${p4.y}`} fill={line.color} className="pointer-events-none" />
               {dist > 0 && (
                 <text x={midX} y={midY - 8} fill={line.color} fontSize="12" fontWeight="bold" textAnchor="middle" style={{ textShadow: "0px 1px 3px rgba(0,0,0,0.8), 0px 0px 2px rgba(0,0,0,1)" }}>
                   {dist} px
@@ -2549,18 +2644,30 @@ export const SyncDualPlayer: React.FC = () => {
     
     return (
       <svg className="absolute top-0 left-0 w-full h-full pointer-events-none z-20">
-        {box && (
-          <rect
-            x={mapToScreen(box.startX, box.startY).x}
-            y={mapToScreen(box.startX, box.startY).y}
-            width={mapToScreen(box.endX, box.endY).x - mapToScreen(box.startX, box.startY).x}
-            height={mapToScreen(box.endX, box.endY).y - mapToScreen(box.startX, box.startY).y}
-            fill="rgba(59, 130, 246, 0.2)"
-            stroke="#3b82f6"
-            strokeWidth="2"
-            strokeDasharray="4 4"
-          />
-        )}
+        {box && (() => {
+          const sx = mapToScreen(box.startX, box.startY).x;
+          const sy = mapToScreen(box.startX, box.startY).y;
+          const ex = mapToScreen(box.endX, box.endY).x;
+          const ey = mapToScreen(box.endX, box.endY).y;
+          const minX = Math.min(sx, ex);
+          const minY = Math.min(sy, ey);
+          const w = Math.abs(ex - sx);
+          const h = Math.abs(ey - sy);
+          return (
+            <g>
+              <rect
+                x={minX} y={minY} width={w} height={h}
+                fill="rgba(59, 130, 246, 0.15)" stroke="#3b82f6" strokeWidth="2" strokeDasharray="4 4"
+                className="pointer-events-auto cursor-move"
+                onMouseDown={(e) => { e.stopPropagation(); setDragHandle({ component: "ocr", sourceVideo, type: "move", initialBox: box, initialMouseX: e.clientX, initialMouseY: e.clientY }); }}
+              />
+              <rect x={sx-4} y={sy-4} width="8" height="8" fill="white" stroke="#3b82f6" strokeWidth="1.5" className="pointer-events-auto cursor-nwse-resize" onMouseDown={(e) => { e.stopPropagation(); setDragHandle({ component: "ocr", sourceVideo, type: "tl", initialBox: box, initialMouseX: e.clientX, initialMouseY: e.clientY }); }} />
+              <rect x={ex-4} y={sy-4} width="8" height="8" fill="white" stroke="#3b82f6" strokeWidth="1.5" className="pointer-events-auto cursor-nesw-resize" onMouseDown={(e) => { e.stopPropagation(); setDragHandle({ component: "ocr", sourceVideo, type: "tr", initialBox: box, initialMouseX: e.clientX, initialMouseY: e.clientY }); }} />
+              <rect x={sx-4} y={ey-4} width="8" height="8" fill="white" stroke="#3b82f6" strokeWidth="1.5" className="pointer-events-auto cursor-nesw-resize" onMouseDown={(e) => { e.stopPropagation(); setDragHandle({ component: "ocr", sourceVideo, type: "bl", initialBox: box, initialMouseX: e.clientX, initialMouseY: e.clientY }); }} />
+              <rect x={ex-4} y={ey-4} width="8" height="8" fill="white" stroke="#3b82f6" strokeWidth="1.5" className="pointer-events-auto cursor-nwse-resize" onMouseDown={(e) => { e.stopPropagation(); setDragHandle({ component: "ocr", sourceVideo, type: "br", initialBox: box, initialMouseX: e.clientX, initialMouseY: e.clientY }); }} />
+            </g>
+          );
+        })()}
         {isDrawingBox && activeOcrBox && (
           <rect
             x={mapToScreen(Math.min(activeOcrBox.startX, activeOcrBox.endX), Math.min(activeOcrBox.startY, activeOcrBox.endY)).x}
@@ -2617,28 +2724,45 @@ export const SyncDualPlayer: React.FC = () => {
       <div className="mb-6 flex flex-wrap items-center gap-3 p-2 bg-white rounded-2xl border border-gray-100 shadow-sm">
         {/* ── Player Mode Toggle Switch ── */}
         <div className="flex items-center gap-3 flex-shrink-0 bg-gray-50 px-3 py-1.5 rounded-xl border border-gray-200 shadow-sm">
-          <span className={`text-sm font-semibold transition-colors cursor-pointer ${!isSinglePlayerMode ? 'text-gray-900' : 'text-gray-400'}`} onClick={() => { setIsSinglePlayerMode(false); }}>Dual</span>
-          
-          <button
-            onClick={() => {
-              const newMode = !isSinglePlayerMode;
-              setIsSinglePlayerMode(newMode);
-              if (newMode && diffMode) deactivateDiffMode();
-            }}
-            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 ${
-              isSinglePlayerMode ? 'bg-purple-600' : 'bg-gray-300'
-            }`}
-            title="Toggle player mode"
-          >
-            <span className="sr-only">Toggle player mode</span>
-            <span
-              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                isSinglePlayerMode ? 'translate-x-6' : 'translate-x-1'
+          <div className="flex bg-gray-200 rounded-lg p-1 relative">
+            <button
+              onClick={() => setIsSinglePlayerMode(false)}
+              className={`relative z-10 px-4 py-1.5 text-xs font-semibold rounded-md transition-colors w-16 text-center ${
+                !isSinglePlayerMode ? 'text-white bg-gray-400' : 'text-gray-500 hover:text-gray-700'
               }`}
-            />
-          </button>
-          
-          <span className={`text-sm font-semibold transition-colors cursor-pointer ${isSinglePlayerMode ? 'text-purple-600' : 'text-gray-400'}`} onClick={() => { setIsSinglePlayerMode(true); if (diffMode) deactivateDiffMode(); }}>Single</span>
+            >
+              Dual
+            </button>
+            <button
+              onClick={() => { setIsSinglePlayerMode(true); if (diffMode) deactivateDiffMode(); }}
+              className={`relative z-10 px-4 py-1.5 text-xs font-semibold rounded-md transition-colors w-16 text-center ${
+                isSinglePlayerMode ? 'text-white bg-purple-600' : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              Single
+            </button>
+          </div>
+
+          {isSinglePlayerMode && (
+            <div className="flex bg-gray-200 rounded-lg p-1 relative border-l border-gray-300 ml-2 pl-3">
+              <button
+                onClick={() => setSinglePlayerSource("acceptance")}
+                className={`relative z-10 px-3 py-1.5 text-[11px] font-semibold rounded-md transition-colors text-center ${
+                  singlePlayerSource === 'acceptance' ? 'text-white bg-purple-600' : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                Acceptance
+              </button>
+              <button
+                onClick={() => setSinglePlayerSource("emission")}
+                className={`relative z-10 px-3 py-1.5 text-[11px] font-semibold rounded-md transition-colors text-center ${
+                  singlePlayerSource === 'emission' ? 'text-white bg-purple-600' : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                Emission
+              </button>
+            </div>
+          )}
 
           {isSinglePlayerMode && (
             <div className="flex items-center gap-2 ml-4 border-l border-gray-300 pl-4">
@@ -2677,6 +2801,21 @@ export const SyncDualPlayer: React.FC = () => {
           }`}
         >
           {diffMode ? <EyeSlashIcon className="w-4 h-4" /> : <EyeIcon className="w-4 h-4" />}{diffMode ? "Diff ON" : "Diff OFF"}
+        </button>
+
+        {/* Diff Highlights Toggle */}
+        {!isSinglePlayerMode && diffMode && (
+          <button
+            onClick={() => setShowDiffHighlights(!showDiffHighlights)}
+            className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold shadow-sm transition-all border
+              ${showDiffHighlights 
+                ? 'bg-amber-100 border-amber-200 text-amber-700 hover:bg-amber-200' 
+                : 'bg-gray-100 border-gray-200 text-gray-500 hover:bg-gray-200'}`}
+          >
+            {showDiffHighlights ? <EyeIcon className="w-4 h-4" /> : <EyeSlashIcon className="w-4 h-4" />}
+            {showDiffHighlights ? "Highlights ON" : "Highlights OFF"}
+          </button>
+        )}
           {isAnalyzing && diffMode && (
             <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
           )}
@@ -3010,6 +3149,7 @@ export const SyncDualPlayer: React.FC = () => {
       <div className={`grid grid-cols-1 ${isSinglePlayerMode ? '' : 'lg:grid-cols-2 gap-1'} ${isSinglePlayerMode && isHorizontalLayout ? '' : ' mb-8'}`}>
         
         {/* Acceptance Video Panel */}
+        {(!isSinglePlayerMode || singlePlayerSource === "acceptance") && (
         <div
           onDragEnter={(e) => handleDragEnter(e, "acceptance")}
           onDragOver={handleDragOver}
@@ -3146,6 +3286,14 @@ export const SyncDualPlayer: React.FC = () => {
             <span className="text-[10px] text-gray-400 w-8 tabular-nums font-semibold">
               {Math.round((isMuted ? 0 : acceptanceVolume) * 100)}%
             </span>
+            <div className="ml-2 pl-2 border-l border-gray-200 flex flex-col justify-center">
+              <span className="text-xs text-gray-700 font-mono font-medium leading-none mb-0.5">
+                {formatTimecode(Math.max(0, (acceptanceVideoRef.current?.currentTime || 0) - acceptanceTrim))}
+              </span>
+              <span className="text-[10px] text-gray-400 font-mono leading-none">
+                {formatTimecode(acceptanceVideoRef.current?.duration || 0)}
+              </span>
+            </div>
             <div className="ml-auto flex items-center space-x-1 text-xs text-gray-500 font-mono bg-white px-2 py-1 rounded border border-gray-200">
               <label className="font-semibold text-gray-600 mr-1">Trim</label>
               <button 
@@ -3174,9 +3322,10 @@ export const SyncDualPlayer: React.FC = () => {
             </div>
           </div>
         </div>
+        )}
 
         {/* Emission Video Panel */}
-        {!isSinglePlayerMode && (
+        {(!isSinglePlayerMode || singlePlayerSource === "emission") && (
         <div
           onDragEnter={(e) => handleDragEnter(e, "emission")}
           onDragOver={handleDragOver}
@@ -3308,6 +3457,14 @@ export const SyncDualPlayer: React.FC = () => {
             <span className="text-[10px] text-gray-400 w-8 tabular-nums font-semibold">
               {Math.round((isMuted ? 0 : emissionVolume) * 100)}%
             </span>
+            <div className="ml-2 pl-2 border-l border-gray-200 flex flex-col justify-center">
+              <span className="text-xs text-gray-700 font-mono font-medium leading-none mb-0.5">
+                {formatTimecode(Math.max(0, (emissionVideoRef.current?.currentTime || 0) - emissionTrim))}
+              </span>
+              <span className="text-[10px] text-gray-400 font-mono leading-none">
+                {formatTimecode(emissionVideoRef.current?.duration || 0)}
+              </span>
+            </div>
             <div className="ml-auto flex items-center space-x-1 text-xs text-gray-500 font-mono bg-white px-2 py-1 rounded border border-gray-200">
               <label className="font-semibold text-gray-600 mr-1">Trim</label>
               <button 
@@ -3353,16 +3510,26 @@ export const SyncDualPlayer: React.FC = () => {
                 {formatTime(currentTime)}
               </span>
             </div>
-            <input
-              type="range"
-              min="0"
-              max={duration || 100}
-              step="0.01"
-              value={currentTime}
-              onChange={(e) => handleSeek(parseFloat(e.target.value))}
-              disabled={!acceptanceFile && !emissionFile}
-              className="flex-grow h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600 disabled:opacity-40"
-            />
+            <div className="flex-grow relative flex items-center">
+              <input
+                type="range"
+                min="0"
+                max={duration || 100}
+                step="0.01"
+                value={currentTime}
+                onChange={(e) => handleSeek(parseFloat(e.target.value))}
+                disabled={!acceptanceFile && !emissionFile}
+                className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600 disabled:opacity-40 z-20"
+              />
+              {/* Diff Markers */}
+              {duration > 0 && diffTimestamps.map(t => (
+                <div 
+                  key={t}
+                  className="absolute top-1/2 -translate-y-1/2 h-4 w-0.5 bg-red-500/80 z-10 pointer-events-none rounded-full"
+                  style={{ left: `${(t / duration) * 100}%` }}
+                />
+              ))}
+            </div>
             <div className="flex flex-col items-start w-20 flex-shrink-0">
               <span className="text-sm text-gray-700 font-mono font-medium">
                 {formatTimecode(duration)}
