@@ -19,6 +19,7 @@ import {
 import Tesseract from "tesseract.js";
 import { diffWords, diffChars } from "diff";
 import { jsPDF } from "jspdf";
+import { robotoBase64 } from "../utils/Roboto-Regular";
 import html2canvas from "html2canvas";
 
 const RulerIcon = ({ className }: { className?: string }) => (
@@ -199,6 +200,8 @@ export const SyncDualPlayer: React.FC = () => {
   const [isSinglePlayerMode, setIsSinglePlayerMode] = useState(false);
   const [isHorizontalLayout, setIsHorizontalLayout] = useState(false);
   const [isVideoBgLight, setIsVideoBgLight] = useState(false);
+  const [acceptanceCustomName, setAcceptanceCustomName] = useState("Video 1");
+  const [emissionCustomName, setEmissionCustomName] = useState("Video 2");
 
   
 
@@ -2026,10 +2029,30 @@ export const SyncDualPlayer: React.FC = () => {
             const cRect = container.getBoundingClientRect();
             
             const scale = 1.5;
-            const vLeft = (vRect.left - cRect.left) * scale;
-            const vTop = (vRect.top - cRect.top) * scale;
-            const vWidth = vRect.width * scale;
-            const vHeight = vRect.height * scale;
+            let drawWidth = vRect.width;
+            let drawHeight = vRect.height;
+            let offsetX = 0;
+            let offsetY = 0;
+            
+            if (videoElement.videoWidth && videoElement.videoHeight) {
+              const videoRatio = videoElement.videoWidth / videoElement.videoHeight;
+              const elementRatio = vRect.width / vRect.height;
+              
+              if (videoRatio > elementRatio) {
+                // Video is wider than element
+                drawHeight = vRect.width / videoRatio;
+                offsetY = (vRect.height - drawHeight) / 2;
+              } else {
+                // Video is taller than element
+                drawWidth = vRect.height * videoRatio;
+                offsetX = (vRect.width - drawWidth) / 2;
+              }
+            }
+
+            const vLeft = (vRect.left - cRect.left + offsetX) * scale;
+            const vTop = (vRect.top - cRect.top + offsetY) * scale;
+            const vWidth = drawWidth * scale;
+            const vHeight = drawHeight * scale;
             
             ctx.drawImage(fallbackCanvas, vLeft, vTop, vWidth, vHeight);
             ctx.drawImage(h2cCanvas, 0, 0);
@@ -2098,6 +2121,16 @@ export const SyncDualPlayer: React.FC = () => {
   const generatePDF = () => {
     const doc = new jsPDF();
     
+    // Add custom font for Polish characters
+    try {
+      doc.addFileToVFS("Roboto-Regular.ttf", robotoBase64);
+      doc.addFont("Roboto-Regular.ttf", "Roboto", "normal");
+      doc.setFont("Roboto", "normal");
+    } catch (e) {
+      console.error("Failed to load Roboto font, falling back to helvetica", e);
+      doc.setFont("helvetica", "normal");
+    }
+    
     const getScaledDim = (imgData: string, maxW: number, maxH: number) => {
       try {
         const props = doc.getImageProperties(imgData);
@@ -2114,15 +2147,14 @@ export const SyncDualPlayer: React.FC = () => {
       }
     };
 
-    doc.setFont("helvetica", "bold");
+    doc.setFont(doc.getFontList()['Roboto'] ? "Roboto" : "helvetica", "normal");
     doc.setFontSize(20);
     doc.text("QA Report - Sync DualPlayer", 20, 20);
     
-    doc.setFont("helvetica", "normal");
     doc.setFontSize(10);
     doc.text(`Data wygenerowania: ${new Date().toLocaleString()}`, 20, 30);
-    if (acceptanceFile) doc.text(`Acceptance: ${acceptanceFile.name}`, 20, 38);
-    if (emissionFile) doc.text(`Emission: ${emissionFile.name}`, 20, 44);
+    if (acceptanceFile) doc.text(`${acceptanceCustomName}: ${acceptanceFile.name}`, 20, 38);
+    if (emissionFile) doc.text(`${emissionCustomName}: ${emissionFile.name}`, 20, 44);
 
     let yOffset = 55;
     
@@ -2136,21 +2168,18 @@ export const SyncDualPlayer: React.FC = () => {
       // Header for item
       doc.setFillColor(243, 244, 246);
       doc.rect(20, yOffset - 5, 170, 8, "F");
-      doc.setFont("helvetica", "bold");
+      doc.setFont(doc.getFontList()['Roboto'] ? "Roboto" : "helvetica", "normal");
       doc.setFontSize(12);
       doc.setTextColor(31, 41, 55);
       doc.text(`Zrzut #${index + 1} - Video time: ${item.timecode.toFixed(3)}s [Typ: ${item.type.toUpperCase()}]`, 22, yOffset);
       yOffset += 10;
       
       // Comment
-      doc.setFont("helvetica", "normal");
       doc.setFontSize(10);
       if (item.comment) {
-        doc.setFont("helvetica", "italic");
-        const lines = doc.splitTextToSize(`Komentarz: ${removeAccents(item.comment)}`, 160);
+        const lines = doc.splitTextToSize(`Komentarz: ${item.comment}`, 160);
         doc.text(lines, 20, yOffset);
         yOffset += (lines.length * 5) + 5;
-        doc.setFont("helvetica", "normal");
       }
 
       if (item.type === "visual" || item.type === "unified" || item.type === "single") {
@@ -2167,7 +2196,7 @@ export const SyncDualPlayer: React.FC = () => {
           if (item.acceptanceImage) {
             hasVideoImages = true;
             doc.setFontSize(9);
-            doc.text("Video Acceptance:", 20, yOffset);
+            doc.text(`${acceptanceCustomName}:`, 20, yOffset);
             const dim1 = getScaledDim(item.acceptanceImage, 80, 45);
             doc.addImage(item.acceptanceImage, "JPEG", 20 + (80 - dim1.w) / 2, yOffset + 3, dim1.w, dim1.h);
             h1 = dim1.h;
@@ -2175,7 +2204,7 @@ export const SyncDualPlayer: React.FC = () => {
           if (item.emissionImage) {
             hasVideoImages = true;
             doc.setFontSize(9);
-            doc.text("Video Emission:", 110, yOffset);
+            doc.text(`${emissionCustomName}:`, 110, yOffset);
             const dim2 = getScaledDim(item.emissionImage, 80, 45);
             doc.addImage(item.emissionImage, "JPEG", 110 + (80 - dim2.w) / 2, yOffset + 3, dim2.w, dim2.h);
             h2 = dim2.h;
@@ -2922,9 +2951,14 @@ export const SyncDualPlayer: React.FC = () => {
             isSinglePlayerMode ? 'bg-purple-50/50' : 'bg-green-50/50'
           }`}>
             <div>
-              <h3 className={`font-semibold ${isSinglePlayerMode ? 'text-purple-800' : 'text-green-800'}`}>
-                {isSinglePlayerMode ? 'Video Preview (Inspection)' : 'Acceptance (Reference)'}
-              </h3>
+              <input 
+                type="text"
+                value={isSinglePlayerMode ? 'Video Preview (Inspection)' : acceptanceCustomName}
+                onChange={(e) => setAcceptanceCustomName(e.target.value)}
+                readOnly={isSinglePlayerMode}
+                className={`font-semibold bg-transparent border-b border-transparent focus:border-green-300 focus:outline-none focus:ring-0 px-0 py-0 m-0 ${isSinglePlayerMode ? 'text-purple-800 cursor-default' : 'text-green-800 hover:bg-green-100/50 transition-colors'}`}
+                style={{ width: '100%', minWidth: '150px' }}
+              />
               {acceptanceFile && (
                 <p className="text-xs text-gray-500 flex flex-wrap items-center mt-0.5" title={acceptanceFile.name}>
                   <span className="truncate max-w-[200px] sm:max-w-[300px] md:max-w-[400px] lg:max-w-[500px]">{acceptanceFile.name}</span>
@@ -3082,7 +3116,13 @@ export const SyncDualPlayer: React.FC = () => {
           {/* Header Panel */}
           <div className="px-6 py-2 border-b border-gray-100 bg-red-50/50 flex justify-between items-center h-[76px]">
             <div>
-              <h3 className="font-semibold text-red-800">Emission</h3>
+              <input 
+                type="text"
+                value={emissionCustomName}
+                onChange={(e) => setEmissionCustomName(e.target.value)}
+                className="font-semibold text-red-800 bg-transparent border-b border-transparent focus:border-red-300 focus:outline-none focus:ring-0 px-0 py-0 m-0 hover:bg-red-100/50 transition-colors"
+                style={{ width: '100%', minWidth: '150px' }}
+              />
               {emissionFile && (
                 <p className="text-xs text-gray-500 flex flex-wrap items-center mt-0.5" title={emissionFile.name}>
                   <span className="truncate max-w-[200px] sm:max-w-[300px] md:max-w-[400px] lg:max-w-[500px]">{emissionFile.name}</span>
