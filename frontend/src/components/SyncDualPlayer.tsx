@@ -189,7 +189,9 @@ export const SyncDualPlayer: React.FC = () => {
 
   // ── Diff Overlay State ────────────────────────────────────────────────────
   const [diffMode, setDiffMode] = useState(false);
+  const [diffViewMode, setDiffViewMode] = useState<"wipe" | "heatmap">("heatmap");
   const [wipePosition, setWipePosition] = useState(50); // 0-100%
+  const [heatmapOpacity, setHeatmapOpacity] = useState(75); // 0-100%
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [diffTimestamps, setDiffTimestamps] = useState<
     { time: number; severity: "certain" | "review" }[]
@@ -475,6 +477,11 @@ export const SyncDualPlayer: React.FC = () => {
   // Video Refs
   const acceptanceVideoRef = useRef<HTMLVideoElement>(null);
   const emissionVideoRef = useRef<HTMLVideoElement>(null);
+  const wipeCanvasRef = useRef<HTMLCanvasElement>(null);
+  const rafIdRef = useRef<number | null>(null);
+  const wipePositionRef = useRef(50);
+  const diffViewModeRef = useRef<"wipe" | "heatmap">("heatmap");
+  const heatmapOpacityRef = useRef(75);
 
   // Diff overlay refs
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -485,11 +492,6 @@ export const SyncDualPlayer: React.FC = () => {
   // Track already-logged timestamps (keyed by rounded second)
   const loggedTimesRef = useRef<Set<number>>(new Set());
   // Canvas-based wipe display (draws directly from main video refs - no extra <video> elements)
-  const wipeCanvasRef = useRef<HTMLCanvasElement>(null);
-  // Mirror of wipePosition for use inside RAF closure (avoids stale state)
-  const wipePositionRef = useRef(50);
-  // requestAnimationFrame handle
-  const rafIdRef = useRef<number | null>(null);
 
   // Check if a file is standard browser playable (like .mp4)
   const isBrowserPlayable = (filename: string) => {
@@ -1331,10 +1333,12 @@ export const SyncDualPlayer: React.FC = () => {
     };
   }, []);
 
-  // Keep wipePositionRef in sync so RAF closure sees the latest value
+  // Keep refs in sync so RAF closure sees the latest values
   useEffect(() => {
     wipePositionRef.current = wipePosition;
-  }, [wipePosition]);
+    diffViewModeRef.current = diffViewMode;
+    heatmapOpacityRef.current = heatmapOpacity;
+  }, [wipePosition, diffViewMode, heatmapOpacity]);
 
   // ── Canvas-based Wipe RAF loop ────────────────────────────────────────────
   // Draws acceptance (clipped) + emission + diff overlay directly from the main
@@ -1405,70 +1409,109 @@ export const SyncDualPlayer: React.FC = () => {
         context.drawImage(source, offsetX, offsetY, drawW, drawH);
       };
 
-      // 1. Draw emission full-width (right side / background)
-      if (emiVideo.readyState >= 2) {
-        drawWithLetterbox(ctx, emiVideo);
+      const currentViewMode = diffViewModeRef.current;
+
+      if (currentViewMode === "wipe") {
+        // --- 1. WIPE MODE ---
+        // 1. Draw emission full-width (right side / background)
+        if (emiVideo.readyState >= 2) {
+          drawWithLetterbox(ctx, emiVideo);
+        }
+
+        // 2. Draw acceptance, clipped to the left portion (wipe position)
+        if (accVideo.readyState >= 2 && wp > 0) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(0, 0, Math.round(W * wp / 100), H);
+          ctx.clip();
+          drawWithLetterbox(ctx, accVideo);
+          ctx.restore();
+        }
+
+        // 3. Diff overlay
+        if (overlayCanvas && overlayCanvas.width > 0) {
+          ctx.globalAlpha = 0.72;
+          ctx.globalCompositeOperation = "source-over";
+          drawWithLetterbox(ctx, overlayCanvas);
+          ctx.globalAlpha = 1;
+        }
+      } else {
+        // --- 2. HEATMAP MODE ---
+        // 1. Draw emission full-width
+        if (emiVideo.readyState >= 2) {
+          drawWithLetterbox(ctx, emiVideo);
+        }
+
+        // 2. Draw black mask for opacity
+        const opacity = heatmapOpacityRef.current / 100;
+        if (opacity > 0) {
+          ctx.fillStyle = `rgba(0, 0, 0, ${opacity})`;
+          ctx.fillRect(0, 0, W, H);
+        }
+
+        // 3. Draw Diff overlay clearly on top
+        if (overlayCanvas && overlayCanvas.width > 0) {
+          ctx.globalAlpha = 1.0;
+          ctx.globalCompositeOperation = "source-over";
+          drawWithLetterbox(ctx, overlayCanvas);
+        }
       }
 
-      // 2. Draw acceptance, clipped to the left portion (wipe position)
-      if (accVideo.readyState >= 2 && wp > 0) {
-        ctx.save();
+      // 4. Wipe divider line + handle (Only in Wipe Mode)
+      if (currentViewMode === "wipe") {
+        const lineX = Math.round(W * wp / 100);
+        ctx.strokeStyle = "rgba(255,255,255,0.9)";
+        ctx.lineWidth = 2;
+        ctx.shadowColor = "rgba(255,255,255,0.6)";
+        ctx.shadowBlur = 8;
         ctx.beginPath();
-        ctx.rect(0, 0, Math.round(W * wp / 100), H);
-        ctx.clip();
-        drawWithLetterbox(ctx, accVideo);
-        ctx.restore();
+        ctx.moveTo(lineX, 0);
+        ctx.lineTo(lineX, H);
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+
+        // Handle circle
+        ctx.fillStyle = "#ffffff";
+        ctx.beginPath();
+        ctx.arc(lineX, H / 2, 16, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "rgba(0,0,0,0.2)";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        // Arrows inside circle
+        ctx.fillStyle = "#374151";
+        ctx.font = "bold 12px sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText("❮❯", lineX, H / 2);
+        ctx.textAlign = "left";
+        ctx.textBaseline = "alphabetic";
       }
-
-      // 3. Diff overlay (source-over — renders at full color, not washed out by screen blend)
-      if (overlayCanvas && overlayCanvas.width > 0) {
-        ctx.globalAlpha = 0.72;
-        ctx.globalCompositeOperation = "source-over";
-        drawWithLetterbox(ctx, overlayCanvas);
-        ctx.globalAlpha = 1;
-        ctx.globalCompositeOperation = "source-over";
-      }
-
-      // 4. Wipe divider line + handle
-      const lineX = Math.round(W * wp / 100);
-      ctx.strokeStyle = "rgba(255,255,255,0.9)";
-      ctx.lineWidth = 2;
-      ctx.shadowColor = "rgba(255,255,255,0.6)";
-      ctx.shadowBlur = 8;
-      ctx.beginPath();
-      ctx.moveTo(lineX, 0);
-      ctx.lineTo(lineX, H);
-      ctx.stroke();
-      ctx.shadowBlur = 0;
-
-      // Handle circle
-      ctx.fillStyle = "#ffffff";
-      ctx.beginPath();
-      ctx.arc(lineX, H / 2, 16, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = "rgba(0,0,0,0.2)";
-      ctx.lineWidth = 1;
-      ctx.stroke();
-      // Arrows inside circle
-      ctx.fillStyle = "#374151";
-      ctx.font = "bold 12px sans-serif";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText("❮❯", lineX, H / 2);
-      ctx.textAlign = "left";
-      ctx.textBaseline = "alphabetic";
 
       // 5. Corner labels
       ctx.font = "bold 11px sans-serif";
-      ctx.fillStyle = "rgba(34,197,94,0.9)";
-      ctx.fillRect(10, 10, 90, 22);
-      ctx.fillStyle = "#fff";
-      ctx.fillText("ACCEPTANCE", 14, 26);
+      
+      if (currentViewMode === "wipe") {
+        ctx.fillStyle = "rgba(34,197,94,0.9)";
+        ctx.fillRect(10, 10, 90, 22);
+        ctx.fillStyle = "#fff";
+        ctx.fillText("ACCEPTANCE", 14, 26);
 
-      ctx.fillStyle = "rgba(239,68,68,0.9)";
-      ctx.fillRect(W - 84, 10, 74, 22);
-      ctx.fillStyle = "#fff";
-      ctx.fillText("EMISSION", W - 80, 26);
+        ctx.fillStyle = "rgba(239,68,68,0.9)";
+        ctx.fillRect(W - 84, 10, 74, 22);
+        ctx.fillStyle = "#fff";
+        ctx.fillText("EMISSION", W - 80, 26);
+      } else {
+        ctx.fillStyle = "rgba(239,68,68,0.9)";
+        ctx.fillRect(10, 10, 95, 22);
+        ctx.fillStyle = "#fff";
+        ctx.fillText("EMISSION (Baza)", 14, 26);
+        
+        ctx.fillStyle = "rgba(0,0,0,0.8)";
+        ctx.fillRect(W - 145, 10, 135, 22);
+        ctx.fillStyle = "#fff";
+        ctx.fillText(`HEATMAP OPACITY: ${heatmapOpacityRef.current}%`, W - 140, 26);
+      }
 
       rafIdRef.current = requestAnimationFrame(drawFrame);
     };
@@ -2734,9 +2777,23 @@ export const SyncDualPlayer: React.FC = () => {
       {diffMode && acceptanceFile && emissionFile && (
         <div id="wipe-diff-container" className="mb-6 bg-gray-950 rounded-2xl overflow-hidden border border-gray-800 shadow-xl">
           <div className="px-5 py-3 flex items-center justify-between border-b border-gray-800">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-4">
               <span className="text-sm font-semibold text-white">Wipe / Diff View</span>
-              <span className="flex items-center gap-1.5 text-xs text-gray-400">
+              <div className="flex bg-gray-800 rounded-lg p-0.5">
+                <button
+                  onClick={() => setDiffViewMode("wipe")}
+                  className={`px-3 py-1 rounded-md text-xs font-semibold transition-all ${diffViewMode === "wipe" ? "bg-gray-700 text-white shadow-sm" : "text-gray-400 hover:text-gray-300"}`}
+                >
+                  Wipe
+                </button>
+                <button
+                  onClick={() => setDiffViewMode("heatmap")}
+                  className={`px-3 py-1 rounded-md text-xs font-semibold transition-all ${diffViewMode === "heatmap" ? "bg-gray-700 text-white shadow-sm" : "text-gray-400 hover:text-gray-300"}`}
+                >
+                  Heatmap
+                </button>
+              </div>
+              <span className="flex items-center gap-1.5 text-xs text-gray-400 border-l border-gray-700 pl-4 ml-1">
                 <span className="w-3 h-3 rounded-sm bg-red-600 inline-block" /> Pewna różnica
                 <span className="w-3 h-3 rounded-sm bg-yellow-400 inline-block ml-2" /> Do sprawdzenia
               </span>
@@ -2766,16 +2823,31 @@ export const SyncDualPlayer: React.FC = () => {
             />
           </div>
 
-          {/* Wipe position slider */}
+          {/* Slider for selected mode */}
           <div className="px-5 py-3 border-t border-gray-800 flex items-center gap-4">
-            <span className="text-xs text-gray-400 w-16">Pozycja:</span>
-            <input
-              type="range" min={0} max={100} step={0.5}
-              value={wipePosition}
-              onChange={(e) => setWipePosition(parseFloat(e.target.value))}
-              className="flex-grow h-1.5 appearance-none bg-gray-700 rounded accent-white cursor-pointer"
-            />
-            <span className="text-xs text-gray-400 w-10 text-right font-mono">{wipePosition.toFixed(0)}%</span>
+            {diffViewMode === "wipe" ? (
+              <>
+                <span className="text-xs text-gray-400 w-16">Pozycja:</span>
+                <input
+                  type="range" min={0} max={100} step={0.5}
+                  value={wipePosition}
+                  onChange={(e) => setWipePosition(parseFloat(e.target.value))}
+                  className="flex-grow h-1.5 appearance-none bg-gray-700 rounded accent-white cursor-pointer"
+                />
+                <span className="text-xs text-gray-400 w-10 text-right font-mono">{wipePosition.toFixed(0)}%</span>
+              </>
+            ) : (
+              <>
+                <span className="text-xs text-gray-400 w-16">Ściemnienie:</span>
+                <input
+                  type="range" min={0} max={100} step={1}
+                  value={heatmapOpacity}
+                  onChange={(e) => setHeatmapOpacity(parseInt(e.target.value))}
+                  className="flex-grow h-1.5 appearance-none bg-gray-700 rounded accent-red-500 cursor-pointer"
+                />
+                <span className="text-xs text-gray-400 w-10 text-right font-mono">{heatmapOpacity}%</span>
+              </>
+            )}
           </div>
         </div>
       )}
