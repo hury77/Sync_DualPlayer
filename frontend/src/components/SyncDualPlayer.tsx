@@ -2801,6 +2801,9 @@ export const SyncDualPlayer: React.FC = () => {
           }`}
         >
           {diffMode ? <EyeSlashIcon className="w-4 h-4" /> : <EyeIcon className="w-4 h-4" />}{diffMode ? "Diff ON" : "Diff OFF"}
+          {isAnalyzing && diffMode && (
+            <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
+          )}
         </button>
 
         {/* Diff Highlights Toggle */}
@@ -2816,10 +2819,6 @@ export const SyncDualPlayer: React.FC = () => {
             {showDiffHighlights ? "Highlights ON" : "Highlights OFF"}
           </button>
         )}
-          {isAnalyzing && diffMode && (
-            <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
-          )}
-        </button>
 
         {isSinglePlayerMode && (
           <button
