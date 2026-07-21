@@ -3523,9 +3523,9 @@ export const SyncDualPlayer: React.FC = () => {
               {/* Diff Markers */}
               {duration > 0 && diffTimestamps.map(t => (
                 <div 
-                  key={t}
-                  className="absolute top-1/2 -translate-y-1/2 h-4 w-0.5 bg-red-500/80 z-10 pointer-events-none rounded-full"
-                  style={{ left: `${(t / duration) * 100}%` }}
+                  key={t.time}
+                  className={`absolute top-1/2 -translate-y-1/2 h-4 w-0.5 z-10 pointer-events-none rounded-full ${t.severity === 'certain' ? 'bg-red-500/80' : 'bg-yellow-500/80'}`}
+                  style={{ left: `${(t.time / duration) * 100}%` }}
                 />
               ))}
             </div>
