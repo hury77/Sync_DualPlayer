@@ -37,8 +37,8 @@ fi
 echo "${APP_VERSION}" > "${SRC_DIR}/backend/version.txt"
 
 # 4. Skompilowanie binarnego wrappera wejściowego (Universal Binary)
-echo "⚙️ Kompilacja binarnego wrappera wejściowego..."
-clang -arch arm64 -arch x86_64 wrapper.c -o "${APP_DIR}/Contents/MacOS/Sync_DualPlayer"
+echo "⚙️ Kompilacja binarnego wrappera wejściowego (Objective-C)..."
+clang -arch arm64 -arch x86_64 -framework Cocoa wrapper.m -o "${APP_DIR}/Contents/MacOS/Sync_DualPlayer"
 chmod +x "${APP_DIR}/Contents/MacOS/Sync_DualPlayer"
 chmod +x "${APP_DIR}/Contents/MacOS/Sync_DualPlayer_run.sh"
 
