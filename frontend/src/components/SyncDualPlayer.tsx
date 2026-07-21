@@ -2409,8 +2409,8 @@ export const SyncDualPlayer: React.FC = () => {
     }
 
     const mapToScreen = (sx: number, sy: number) => ({
-      x: (sx / video.videoWidth) * renderedWidth + offsetX,
-      y: (sy / video.videoHeight) * renderedHeight + offsetY
+      x: (sx / video.videoWidth) * renderedWidth + offsetX + video.offsetLeft,
+      y: (sy / video.videoHeight) * renderedHeight + offsetY + video.offsetTop
     });
 
     const calculateDistance = (line: RulerLine) => {
@@ -2421,7 +2421,7 @@ export const SyncDualPlayer: React.FC = () => {
     if (activeRulerLine) linesToRender.push(activeRulerLine);
 
     return (
-      <svg xmlns="http://www.w3.org/2000/svg" className="absolute top-4 left-4 w-[calc(100%-2rem)] h-[calc(100%-2rem)] pointer-events-none z-20">
+      <svg xmlns="http://www.w3.org/2000/svg" className="absolute top-0 left-0 w-full h-full pointer-events-none z-20">
         {linesToRender.filter(l => l.sourceVideo === sourceVideo).map((line, i) => {
           const start = mapToScreen(line.startX, line.startY);
           const end = mapToScreen(line.endX, line.endY);
@@ -2489,8 +2489,8 @@ export const SyncDualPlayer: React.FC = () => {
     }
 
     const mapToScreen = (sx: number, sy: number) => ({
-      x: (sx / video.videoWidth) * renderedWidth + offsetX,
-      y: (sy / video.videoHeight) * renderedHeight + offsetY
+      x: (sx / video.videoWidth) * renderedWidth + offsetX + video.offsetLeft,
+      y: (sy / video.videoHeight) * renderedHeight + offsetY + video.offsetTop
     });
 
     return (
@@ -2540,15 +2540,15 @@ export const SyncDualPlayer: React.FC = () => {
     }
 
     const mapToScreen = (sx: number, sy: number) => ({
-      x: (sx / video.videoWidth) * renderedWidth + offsetX,
-      y: (sy / video.videoHeight) * renderedHeight + offsetY
+      x: (sx / video.videoWidth) * renderedWidth + offsetX + video.offsetLeft,
+      y: (sy / video.videoHeight) * renderedHeight + offsetY + video.offsetTop
     });
 
     const box = sourceVideo === "acceptance" ? ocrBoxAcceptance : ocrBoxEmission;
     const isDrawingBox = activeOcrBox?.sourceVideo === sourceVideo;
     
     return (
-      <svg className="absolute top-4 left-4 w-[calc(100%-2rem)] h-[calc(100%-2rem)] pointer-events-none z-20">
+      <svg className="absolute top-0 left-0 w-full h-full pointer-events-none z-20">
         {box && (
           <rect
             x={mapToScreen(box.startX, box.startY).x}
