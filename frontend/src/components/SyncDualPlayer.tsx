@@ -2824,7 +2824,7 @@ export const SyncDualPlayer: React.FC = () => {
                NO extra <video> elements here → no ref conflicts → no freeze on exit. */}
           <div
             ref={wipeContainerRef}
-            className="relative w-full select-none flex justify-center bg-black"
+            className="relative w-full max-h-[60vh] select-none flex justify-center bg-black"
             style={{ 
               aspectRatio: "16/9",
               cursor: "col-resize"
