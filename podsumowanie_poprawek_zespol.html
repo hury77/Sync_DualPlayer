@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="pl">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Podsumowanie Zmian</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 2rem;
+            background-color: #f9fafb;
+        }
+
+        .container {
+            background-color: white;
+            padding: 2rem 3rem;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        h1,
+        h2,
+        h3 {
+            color: #111827;
+        }
+
+        h1 {
+            border-bottom: 2px solid #e5e7eb;
+            padding-bottom: 0.5rem;
+        }
+
+        h2 {
+            margin-top: 2rem;
+            color: #4f46e5;
+        }
+
+        ul,
+        ol {
+            margin-bottom: 1.5rem;
+        }
+
+        li {
+            margin-bottom: 0.5rem;
+        }
+
+        code {
+            background-color: #f3f4f6;
+            padding: 0.2rem 0.4rem;
+            border-radius: 4px;
+            font-family: monospace;
+        }
+
+        hr {
+            border: 0;
+            height: 1px;
+            background: #e5e7eb;
+            margin: 2rem 0;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>Podsumowanie poprawek <br> (Wczoraj wieczór - dzisiaj) 🚀</h1>
+        <p>Poniżej znajduje się kompletna lista wszystkich poprawek i nowych funkcjonalności wprowadzonych od
+            wczorajszego wieczora na prośbę Marty. </p>
+        <p>Zmiany podzieliłem na dwie kategorie: UI/UX (Poprawki) oraz Nowe Funkcjonalności (Analiza).</p>
+        <h2>🛠️ Poprawki Interfejsu i Narzędzi (UI/UX)</h2>
+        <ol>
+            <li>
+                <p><strong>Powiększone fonty czasówek</strong>
+                    Zwiększono rozmiar czcionki (o 2 punkty) dla liczników czasu (timecode) wyświetlanych nad suwakami
+                    głośności. Są one teraz znacznie bardziej czytelne z większej odległości.</p>
+            </li>
+            <li>
+                <p><strong>Czytelne nazewnictwo źródeł (Single Player)</strong>
+                    Zamiast technicznych nazw &quot;Acceptance&quot; i &quot;Emission&quot;, przyciski zmiany źródła w
+                    trybie pojedynczego odtwarzacza wyświetlają teraz domyślnie <strong>&quot;Video 1&quot; /
+                        &quot;Video 2&quot;</strong>, a po wgraniu własnych plików – dokładne nazwy wgranych wideo.</p>
+            </li>
+            <li>
+                <p><strong>Poprawna nawigacja po osi w trybie Heatmapy</strong>
+                    Naprawiono błąd, który sprawiał, że po kliknięciu na czerwony/żółty znacznik usterki na osi czasu,
+                    różnice nie podświetlały się automatycznie na Heatmapie. Teraz kliknięcie przenosi dokładnie w
+                    miejsce usterki i od razu rysuje czerwoną poświatę.</p>
+            </li>
+            <li>
+                <p><strong>Bardziej naturalne zachowanie Linijki (Ruler)</strong>
+                    Linijka wymaga teraz intuicyjnego gestu &quot;kliknij, przeciągnij i upuść&quot; aby narysować pełną
+                    linię. Wyeliminowano irytujący błąd, który powodował stawianie bezużytecznych &quot;kropek&quot;
+                    (pojedynczych kliknięć).</p>
+            </li>
+            <li>
+                <p><strong>Uporządkowany Kroplomierz (Eyedropper)</strong>
+                    Usunięto rozpraszające okienko z podglądem RGB/HEX, które stale było przyklejone do kursora myszki
+                    po aktywacji narzędzia. Obecnie kroplomierz zostawia po kliknięciu precyzyjny celownik (crosshair) z
+                    przypiętą informacją o kolorze badanego piksela.</p>
+            </li>
+            <li>
+                <p><strong>Lepsza czytelność modułu OCR</strong>
+                    We wszystkich polach podglądu wyciągniętego tekstu (OCR) oraz w module wklejania
+                    &quot;Copydecku&quot; zamieniono czcionkę maszynową (<code>font-mono</code>) na nowoczesny krój
+                    bezszeryfowy (<code>font-sans</code>). Problem mylenia litery &quot;O&quot; z cyfrą &quot;0&quot;
+                    oraz &quot;I&quot; z &quot;l&quot; został całkowicie wyeliminowany, co pozwala na szybszy
+                    <em>double-check</em> tekstów.
+                </p>
+            </li>
+            <li>
+                <p><strong>Uporządkowany panel UI</strong>
+                    Usunięto zduplikowany suwak przezroczystości (opacity) dla trybu Heatmapy, który niepotrzebnie
+                    zaśmiecał panel narzędzi.</p>
+            </li>
+        </ol>
+        <hr>
+        <h2>🔬 Nowe Funkcjonalności Detekcji (Diff Mode)</h2>
+        <ol start="8">
+            <li>
+                <p><strong>Suwak Czułości Wideo (Sensitivity Slider)</strong>
+                    Dodano w UI nową kontrolkę rozwijaną (&quot;Niska&quot;, &quot;Średnia&quot;, &quot;Wysoka&quot;).
+                    Pozwala to testerom na samodzielne zbalansowanie algorytmu szukania różnic. </p>
+                <ul>
+                    <li><em>Wysoka czułość</em> pozwala wyłapać usterki stanowiące nawet promil powierzchni klatki (np.
+                        ukryty znak wodny na ułamek sekundy).</li>
+                    <li><em>Niska czułość</em> pozwala odfiltrować fałszywe alarmy spowodowane ciężką kompresją wideo w
+                        słabej jakości plikach.</li>
+                </ul>
+            </li>
+            <li>
+                <p><strong>Detekcja Rozjazdów Dźwięku na żywo (Audio Diff)</strong>
+                    Największa innowacja dzisiejszego wydania. Aplikacja w trybie <em>Diff Mode</em> równolegle z
+                    obrazem analizuje fale dźwiękowe z obu odtwarzaczy za pomocą natywnego <em>Web Audio API</em>
+                    (analiza częstotliwości FFT). </p>
+                <ul>
+                    <li>Gdy aplikacja wykryje nagły brak spójności w głośności lub barwie dźwięku, natychmiast
+                        wygeneruje ostrzegawczy <strong>Niebieski Znacznik na osi czasu</strong>.</li>
+                    <li>Obok przycisków odtwarzania włączy się na ułamek sekundy pulsujący czerwony znak z napisem
+                        <code>Audio Diff!</code>.
+                    </li>
+                    <li>Moduł działa bezpośrednio na sprzęcie (blisko rdzenia procesora), więc nie powoduje żadnych
+                        spadków wydajności w analizie samego obrazu.</li>
+                </ul>
+            </li>
+        </ol>
+        <hr>
+        <p><em>Najnowsza wersja instalacyjna (DMG) zawierająca wszystkie powyższe usprawnienia została wygenerowana ze
+                statusem &quot;Sukces&quot; i jest gotowa do pobrania.</em></p>
+    </div>
+</body>
+
+</html>
