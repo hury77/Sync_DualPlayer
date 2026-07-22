@@ -125,7 +125,6 @@ export const SyncDualPlayer: React.FC = () => {
 
   // Eyedropper States
   const [isEyedropperActive, setIsEyedropperActive] = useState(false);
-  const [hoverColor, setHoverColor] = useState<{ r: number, g: number, b: number, hex: string, x: number, y: number, sourceX: number, sourceY: number, sourceVideo: "acceptance" | "emission" } | null>(null);
   const [eyedropperDrops, setEyedropperDrops] = useState<{ r: number, g: number, b: number, hex: string, sourceX: number, sourceY: number, sourceVideo: "acceptance" | "emission" }[]>([]);
 
   // Ruler States
@@ -133,6 +132,7 @@ export const SyncDualPlayer: React.FC = () => {
   const [rulerColor, setRulerColor] = useState("#3b82f6");
   const [rulerLines, setRulerLines] = useState<RulerLine[]>([]);
   const [activeRulerLine, setActiveRulerLine] = useState<RulerLine | null>(null);
+  const [rulerStartPoint, setRulerStartPoint] = useState<{x: number, y: number, video: "acceptance"|"emission"} | null>(null);
 
   // ── Interaction States ────────────────────────────────────────────────────
   type DragHandleState = {
@@ -1030,14 +1030,28 @@ export const SyncDualPlayer: React.FC = () => {
       if (!coords) return;
       const sourceVideo = videoRef === acceptanceVideoRef ? "acceptance" : "emission";
       
-      setActiveRulerLine({
-        startX: coords.sourceX,
-        startY: coords.sourceY,
-        endX: coords.sourceX,
-        endY: coords.sourceY,
-        sourceVideo,
-        color: rulerColor
-      });
+      if (rulerStartPoint && rulerStartPoint.video === sourceVideo) {
+        setRulerLines(prev => [...prev, {
+          startX: rulerStartPoint.x,
+          startY: rulerStartPoint.y,
+          endX: coords.sourceX,
+          endY: coords.sourceY,
+          sourceVideo,
+          color: rulerColor
+        }]);
+        setRulerStartPoint(null);
+        setActiveRulerLine(null);
+      } else {
+        setRulerStartPoint({ x: coords.sourceX, y: coords.sourceY, video: sourceVideo });
+        setActiveRulerLine({
+          startX: coords.sourceX,
+          startY: coords.sourceY,
+          endX: coords.sourceX,
+          endY: coords.sourceY,
+          sourceVideo,
+          color: rulerColor
+        });
+      }
       return;
     }
 
@@ -1084,6 +1098,7 @@ export const SyncDualPlayer: React.FC = () => {
   };
 
   const handleVideoMouseMove = (e: React.MouseEvent<HTMLVideoElement>, videoRef: React.RefObject<HTMLVideoElement | null>) => {
+    if (e.buttons !== 1) return;
     if (isRulerActive && activeRulerLine && !isPlaying) {
       const coords = getMouseSourceCoordinates(e.clientX, e.clientY, videoRef);
       if (coords) {
@@ -1106,58 +1121,30 @@ export const SyncDualPlayer: React.FC = () => {
       }
       return;
     }
-
-    if (!isEyedropperActive || isPlaying) {
-      if (hoverColor) setHoverColor(null);
-      return;
-    }
-    
-    const coords = getMouseSourceCoordinates(e.clientX, e.clientY, videoRef);
-    if (!coords) return;
-    
-    const { sourceX, sourceY, video } = coords;
-
-    const canvas = document.createElement("canvas");
-    canvas.width = 1;
-    canvas.height = 1;
-    const ctx = canvas.getContext("2d", { willReadFrequently: true });
-    if (!ctx) return;
-
-    try {
-      ctx.drawImage(video, sourceX, sourceY, 1, 1, 0, 0, 1, 1);
-      const pixel = ctx.getImageData(0, 0, 1, 1).data;
-      
-      const r = pixel[0], g = pixel[1], b = pixel[2];
-      const hex = "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1).toUpperCase();
-
-      const sourceVideo = videoRef === acceptanceVideoRef ? "acceptance" : "emission";
-      setHoverColor({ r, g, b, hex, x: e.clientX, y: e.clientY, sourceX, sourceY, sourceVideo });
-    } catch (err) {
-      setHoverColor(null);
-    }
   };
 
   const handleVideoMouseUp = () => {
     if (isRulerActive && activeRulerLine) {
-      setRulerLines(prev => [...prev, activeRulerLine]);
+      if (rulerStartPoint) {
+        if (Math.abs(activeRulerLine.endX - rulerStartPoint.x) > 5 || Math.abs(activeRulerLine.endY - rulerStartPoint.y) > 5) {
+          setRulerLines(prev => [...prev, activeRulerLine]);
+          setRulerStartPoint(null);
+        }
+      }
       setActiveRulerLine(null);
     }
     
     if (isOcrActive && activeOcrBox) {
-      const box = {
-        startX: Math.min(activeOcrBox.startX, activeOcrBox.endX),
-        startY: Math.min(activeOcrBox.startY, activeOcrBox.endY),
-        endX: Math.max(activeOcrBox.startX, activeOcrBox.endX),
-        endY: Math.max(activeOcrBox.startY, activeOcrBox.endY),
-      };
-      
-      // Ensure box is at least 10x10 to be valid
-      if (box.endX - box.startX > 10 && box.endY - box.startY > 10) {
-        if (activeOcrBox.sourceVideo === "acceptance") {
-          setOcrBoxAcceptance(box);
-        } else {
-          setOcrBoxEmission(box);
-        }
+      if (activeOcrBox.startX !== activeOcrBox.endX || activeOcrBox.startY !== activeOcrBox.endY) {
+        const box = {
+          startX: Math.min(activeOcrBox.startX, activeOcrBox.endX),
+          startY: Math.min(activeOcrBox.startY, activeOcrBox.endY),
+          endX: Math.max(activeOcrBox.startX, activeOcrBox.endX),
+          endY: Math.max(activeOcrBox.startY, activeOcrBox.endY),
+          sourceVideo: activeOcrBox.sourceVideo
+        };
+        if (activeOcrBox.sourceVideo === "acceptance") setOcrBoxAcceptance(box);
+        else setOcrBoxEmission(box);
       }
       setActiveOcrBox(null);
     }
@@ -1734,14 +1721,8 @@ export const SyncDualPlayer: React.FC = () => {
         ctx.fillText("Do sprawdzenia", canvas.width - 178, canvas.height - 14);
       }
 
-      // Eyedropper overlays (pinned drops + current hover)
+      // Eyedropper overlays (pinned drops)
       const dropsToRender = [...eyedropperDrops];
-      if (isEyedropperActive && hoverColor) {
-        dropsToRender.push({
-          r: hoverColor.r, g: hoverColor.g, b: hoverColor.b, hex: hoverColor.hex,
-          sourceX: hoverColor.sourceX, sourceY: hoverColor.sourceY, sourceVideo: hoverColor.sourceVideo
-        });
-      }
 
       dropsToRender.forEach((drop) => {
         const isAcc = drop.sourceVideo === "acceptance";
@@ -1752,47 +1733,11 @@ export const SyncDualPlayer: React.FC = () => {
         let drawY = drop.sourceY * scaleY + LABEL_H;
         if (!isAcc) drawX += SIDE_W;
 
-        // Offset the box slightly from the exact pixel
-        drawX += 20;
-        drawY += 20;
-
-        // Keep it inside the canvas
-        if (drawX + 160 > canvas.width) drawX -= 180;
-        if (drawY + 60 > canvas.height) drawY -= 80;
-
-        // Tooltip Background
-        ctx.fillStyle = "rgba(15,23,42,0.95)";
+        ctx.strokeStyle = "white";
+        ctx.lineWidth = 2;
         ctx.beginPath();
-        if (ctx.roundRect) {
-          ctx.roundRect(drawX, drawY, 150, 44, 8);
-        } else {
-          ctx.fillRect(drawX, drawY, 150, 44);
-        }
-        ctx.fill();
-        ctx.strokeStyle = "rgba(71,85,105,0.5)";
+        ctx.arc(drawX, drawY, 8, 0, Math.PI * 2);
         ctx.stroke();
-
-        // Color Swatch
-        ctx.fillStyle = drop.hex;
-        ctx.beginPath();
-        if (ctx.roundRect) {
-          ctx.roundRect(drawX + 8, drawY + 8, 28, 28, 4);
-        } else {
-          ctx.fillRect(drawX + 8, drawY + 8, 28, 28);
-        }
-        ctx.fill();
-        ctx.strokeStyle = "rgba(255,255,255,0.2)";
-        ctx.stroke();
-        
-        // Text
-        ctx.fillStyle = "#f8fafc";
-        ctx.font = "bold 13px 'Courier New', monospace";
-        ctx.textAlign = "left";
-        ctx.textBaseline = "middle";
-        ctx.fillText(drop.hex, drawX + 44, drawY + 16);
-        ctx.fillStyle = "#94a3b8";
-        ctx.font = "10px 'Courier New', monospace";
-        ctx.fillText(`RGB: ${drop.r}, ${drop.g}, ${drop.b}`, drawX + 44, drawY + 32);
       });
 
       // Ruler overlay
@@ -1877,7 +1822,6 @@ export const SyncDualPlayer: React.FC = () => {
         a.click();
         URL.revokeObjectURL(url);
         setScreenshotSaving(false);
-        setEyedropperDrops([]);
         // Resume playback if it was playing before
         if (wasPlaying) {
           accVideo.play().catch(() => {});
@@ -1890,7 +1834,7 @@ export const SyncDualPlayer: React.FC = () => {
       setScreenshotSaving(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [acceptanceFile, emissionFile, diffMode, isEyedropperActive, hoverColor, isRulerActive, rulerLines, activeRulerLine]);
+  }, [acceptanceFile, emissionFile, diffMode, isEyedropperActive, isRulerActive, rulerLines, activeRulerLine]);
 
   // Sync individual volumes & master mute state
   useEffect(() => {
@@ -2128,19 +2072,13 @@ export const SyncDualPlayer: React.FC = () => {
           // Draw Eyedroppers
           if (isEyedropperActive) {
             const dropsToRender = [...eyedropperDrops];
-            if (hoverColor) dropsToRender.push(hoverColor);
+            // Do not add hoverColor
             dropsToRender.filter(d => d.sourceVideo === sourceVideo).forEach(drop => {
               fCtx.strokeStyle = "white";
               fCtx.lineWidth = 2 * baseScale;
               fCtx.beginPath();
               fCtx.arc(drop.sourceX, drop.sourceY, 8 * baseScale, 0, 2 * Math.PI);
               fCtx.stroke();
-              
-              fCtx.fillStyle = "rgba(0, 0, 0, 0.7)";
-              fCtx.fillRect(drop.sourceX + 15 * baseScale, drop.sourceY - 35 * baseScale, 100 * baseScale, 30 * baseScale);
-              fCtx.fillStyle = drop.hex;
-              fCtx.font = `bold ${16 * baseScale}px monospace`;
-              fCtx.fillText(drop.hex, drop.sourceX + 22 * baseScale, drop.sourceY - 14 * baseScale);
             });
           }
         }
@@ -2593,20 +2531,12 @@ export const SyncDualPlayer: React.FC = () => {
         {eyedropperDrops.filter(d => d.sourceVideo === sourceVideo).map((drop, i) => {
           const pos = mapToScreen(drop.sourceX, drop.sourceY);
           return (
-            <div 
-              key={i}
-              className="absolute pointer-events-none flex items-center bg-gray-900/95 text-white rounded-xl shadow-2xl border border-gray-700/50 p-2 backdrop-blur-md"
-              style={{ left: pos.x + 10, top: pos.y + 10 }}
-            >
+            <React.Fragment key={i}>
               <div 
-                className="w-8 h-8 rounded-md border-2 border-white/20 shadow-inner mr-2"
-                style={{ backgroundColor: drop.hex }}
-              ></div>
-              <div className="flex flex-col font-mono text-[10px] pr-1">
-                <span className="font-bold text-gray-100 mb-0.5 tracking-wider">{drop.hex}</span>
-                <span className="text-gray-400">RGB: <span className="text-gray-200">{drop.r},{drop.g},{drop.b}</span></span>
-              </div>
-            </div>
+                className="absolute pointer-events-none w-2.5 h-2.5 rounded-full border border-white shadow-[0_0_2px_rgba(0,0,0,0.8)]"
+                style={{ left: pos.x - 5, top: pos.y - 5, backgroundColor: drop.hex }}
+              />
+            </React.Fragment>
           );
         })}
       </div>
@@ -2685,22 +2615,6 @@ export const SyncDualPlayer: React.FC = () => {
 
   return (
     <div className={`${isSinglePlayerMode && !isHorizontalLayout ? 'max-w-7xl mx-auto' : 'w-full'} px-4 py-4 pb-4 transition-all duration-500`}>
-      {/* Eyedropper Tooltip */}
-      {isEyedropperActive && hoverColor && (
-        <div 
-          className="fixed z-50 pointer-events-none flex items-center bg-gray-900/95 text-white rounded-xl shadow-2xl border border-gray-700/50 p-2 overflow-hidden backdrop-blur-md"
-          style={{ left: hoverColor.x + 20, top: hoverColor.y + 20 }}
-        >
-          <div 
-            className="w-10 h-10 rounded-md border-2 border-white/20 shadow-inner mr-3"
-            style={{ backgroundColor: hoverColor.hex }}
-          ></div>
-          <div className="flex flex-col font-mono text-xs pr-2">
-            <span className="font-bold text-gray-100 text-sm mb-0.5 tracking-wider">{hoverColor.hex}</span>
-            <span className="text-gray-400">RGB: <span className="text-gray-200">{hoverColor.r}, {hoverColor.g}, {hoverColor.b}</span></span>
-          </div>
-        </div>
-      )}
 
       {/* Title Header */}
       <div className="mb-6 flex items-start gap-5">
@@ -2751,7 +2665,7 @@ export const SyncDualPlayer: React.FC = () => {
                   singlePlayerSource === 'acceptance' ? 'text-white bg-purple-600' : 'text-gray-500 hover:text-gray-700'
                 }`}
               >
-                Acceptance
+                {acceptanceCustomName || "Video 1"}
               </button>
               <button
                 onClick={() => setSinglePlayerSource("emission")}
@@ -2759,7 +2673,7 @@ export const SyncDualPlayer: React.FC = () => {
                   singlePlayerSource === 'emission' ? 'text-white bg-purple-600' : 'text-gray-500 hover:text-gray-700'
                 }`}
               >
-                Emission
+                {emissionCustomName || "Video 2"}
               </button>
             </div>
           )}
@@ -2800,7 +2714,7 @@ export const SyncDualPlayer: React.FC = () => {
               : "bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-600/20"
           }`}
         >
-          {diffMode ? <EyeSlashIcon className="w-4 h-4" /> : <EyeIcon className="w-4 h-4" />}{diffMode ? "Diff ON" : "Diff OFF"}
+          {diffMode ? <EyeSlashIcon className="w-4 h-4" /> : <EyeIcon className="w-4 h-4" />}{diffMode ? "Diff Analysis ON" : "Diff Analysis OFF"}
           {isAnalyzing && diffMode && (
             <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
           )}
@@ -2828,7 +2742,7 @@ export const SyncDualPlayer: React.FC = () => {
             className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold shadow-sm transition-all disabled:opacity-100 disabled:bg-gray-100 disabled:text-gray-400 disabled:shadow-none disabled:cursor-not-allowed bg-green-600 hover:bg-green-700 text-white shadow-green-600/20`}
           >
             <EyeIcon className="w-4 h-4" />
-            {isPsQaAnalyzing ? "Scanning..." : "PS Auto-Check"}
+            {isPsQaAnalyzing ? "Scanning..." : "Run Playstation Auto-Check"}
             {isPsQaAnalyzing && <span className="w-2 h-2 rounded-full bg-white animate-pulse" />}
           </button>
         )}
@@ -2852,7 +2766,7 @@ export const SyncDualPlayer: React.FC = () => {
               }`}
             >
               <DocumentTextIcon className="w-4 h-4" />
-              {isUploadingBrief ? "Wgrywanie..." : isBriefUploaded ? "Brief Wgrany" : "Upload LOC Brief"}
+              {isUploadingBrief ? "Uploading..." : isBriefUploaded ? "LOC Brief Loaded" : "Upload LOC Brief"}
             </button>
           </div>
         )}
@@ -2876,7 +2790,7 @@ export const SyncDualPlayer: React.FC = () => {
               }`}
             >
               <DocumentTextIcon className="w-4 h-4" />
-              {isUploadingCopydeck ? "Parsing..." : copydeckData ? "Copydeck Ready" : "Upload Copydeck"}
+              {isUploadingCopydeck ? "Parsing..." : copydeckData ? "Copydeck Loaded" : "Upload Copydeck"}
             </button>
           </div>
         )}
@@ -2896,7 +2810,7 @@ export const SyncDualPlayer: React.FC = () => {
             }`}
           >
             <DocumentTextIcon className="w-4 h-4" />
-            {isOcrActive ? "OCR ON" : "Compare OCR"}
+            {isOcrActive ? "OCR Mode ON" : "Enable OCR Mode"}
           </button>
         )}
 
@@ -2907,7 +2821,7 @@ export const SyncDualPlayer: React.FC = () => {
           className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold shadow-sm bg-gray-800 hover:bg-gray-900 text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed ml-auto"
         >
           <CameraIcon className="w-4 h-4" />
-          {screenshotSaving ? "Saving…" : "Screenshot"}
+          {screenshotSaving ? "Saving…" : "Save Screenshot"}
         </button>
       </div>
 
@@ -2932,14 +2846,14 @@ export const SyncDualPlayer: React.FC = () => {
                 </button>
               </div>
               <span className="flex items-center gap-1.5 text-xs text-gray-400 border-l border-gray-700 pl-4 ml-1">
-                <span className="w-3 h-3 rounded-sm bg-red-600 inline-block" /> Pewna różnica
-                <span className="w-3 h-3 rounded-sm bg-yellow-400 inline-block ml-2" /> Do sprawdzenia
+                <span className="w-3 h-3 rounded-sm bg-red-600 inline-block" /> Certain diff
+                <span className="w-3 h-3 rounded-sm bg-yellow-400 inline-block ml-2" /> Needs review
               </span>
             </div>
             <div className="flex items-center gap-4">
               {diffViewMode === "heatmap" && (
                 <div className="flex items-center gap-2 mr-2">
-                  <span className="text-xs text-gray-400">Ściemnienie:</span>
+                  <span className="text-xs text-gray-400">Opacity:</span>
                   <input
                     type="range" min={0} max={100} step={1}
                     value={heatmapOpacity}
@@ -2953,7 +2867,7 @@ export const SyncDualPlayer: React.FC = () => {
                 onClick={() => analyzeCurrentFrame()}
                 className="text-xs px-3 py-1 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 transition-colors whitespace-nowrap"
               >
-                Odśwież klatkę
+                Refresh Frame
               </button>
             </div>
           </div>
@@ -2978,7 +2892,7 @@ export const SyncDualPlayer: React.FC = () => {
           {/* Wipe position slider (only visible in Wipe mode) */}
           {diffViewMode === "wipe" && (
             <div className="px-5 py-3 border-t border-gray-800 flex items-center gap-4">
-              <span className="text-xs text-gray-400 w-16">Pozycja:</span>
+              <span className="text-xs text-gray-400 w-16">Position:</span>
               <input
                 type="range" min={0} max={100} step={0.5}
                 value={wipePosition}
@@ -2995,8 +2909,8 @@ export const SyncDualPlayer: React.FC = () => {
       {diffMode && diffTimestamps.length > 0 && (
         <div className="mb-6 bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
           <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
-            <span className="text-sm font-semibold text-gray-800">Wykryte różnice ({diffTimestamps.length})</span>
-            <span className="text-xs text-gray-400">Kliknij aby teleportować oba playery</span>
+            <span className="text-sm font-semibold text-gray-800">Detected Issues ({diffTimestamps.length})</span>
+            <span className="text-xs text-gray-400">Click to seek playback</span>
           </div>
           <div className="flex flex-wrap gap-2 p-4">
             {diffTimestamps.map((ts, i) => (
@@ -3023,7 +2937,7 @@ export const SyncDualPlayer: React.FC = () => {
       {diffMode && diffTimestamps.length === 0 && isAnalyzing && (
         <div className="mb-6 px-5 py-3 bg-green-50 border border-green-200 rounded-2xl text-sm text-green-700 flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-          Analiza w toku — brak wykrytych różnic.
+          Analyzing stream — no issues detected yet.
         </div>
       )}
 
@@ -3080,14 +2994,14 @@ export const SyncDualPlayer: React.FC = () => {
                       </div>
                     </div>
                   ) : (
-                    <span className="text-xs text-gray-500">Brak ikony w briefie</span>
+                    <span className="text-xs text-gray-500">Brief missing image</span>
                   )}
                 </div>
               )}
               <span className="text-sm font-medium text-gray-900">{psQaMetadata.rating}</span>
               {psQaResults && (
                 <span className="mt-2 px-3 py-1 rounded-full text-[11px] font-bold bg-amber-100 text-amber-700">
-                  ⚠️ PORÓWNAJ NAOCZNIE
+                  ⚠️ VISUAL CHECK REQUIRED
                 </span>
               )}
             </div>
@@ -3234,6 +3148,7 @@ export const SyncDualPlayer: React.FC = () => {
                 onLoadedMetadata={(e) => {
                   setAccDimensions({ width: e.currentTarget.videoWidth, height: e.currentTarget.videoHeight });
                 }}
+                onSeeked={() => { if (diffMode && !isPlaying) analyzeCurrentFrame(); }}
                 onMouseDown={(e) => handleVideoMouseDown(e, acceptanceVideoRef)}
                 onMouseMove={(e) => handleVideoMouseMove(e, acceptanceVideoRef)}
                 onMouseUp={handleVideoMouseUp}
@@ -3286,10 +3201,10 @@ export const SyncDualPlayer: React.FC = () => {
               {Math.round((isMuted ? 0 : acceptanceVolume) * 100)}%
             </span>
             <div className="ml-2 pl-2 border-l border-gray-200 flex flex-col justify-center">
-              <span className="text-xs text-gray-700 font-mono font-medium leading-none mb-0.5">
+              <span className="text-sm text-gray-700 font-mono font-medium leading-none mb-0.5">
                 {formatTimecode(Math.max(0, (acceptanceVideoRef.current?.currentTime || 0) - acceptanceTrim))}
               </span>
-              <span className="text-[10px] text-gray-400 font-mono leading-none">
+              <span className="text-xs text-gray-400 font-mono leading-none">
                 {formatTimecode(acceptanceVideoRef.current?.duration || 0)}
               </span>
             </div>
@@ -3405,6 +3320,7 @@ export const SyncDualPlayer: React.FC = () => {
                 onLoadedMetadata={(e) => {
                   setEmDimensions({ width: e.currentTarget.videoWidth, height: e.currentTarget.videoHeight });
                 }}
+                onSeeked={() => { if (diffMode && !isPlaying) analyzeCurrentFrame(); }}
                 onMouseDown={(e) => handleVideoMouseDown(e, emissionVideoRef)}
                 onMouseMove={(e) => handleVideoMouseMove(e, emissionVideoRef)}
                 onMouseUp={handleVideoMouseUp}
@@ -3457,10 +3373,10 @@ export const SyncDualPlayer: React.FC = () => {
               {Math.round((isMuted ? 0 : emissionVolume) * 100)}%
             </span>
             <div className="ml-2 pl-2 border-l border-gray-200 flex flex-col justify-center">
-              <span className="text-xs text-gray-700 font-mono font-medium leading-none mb-0.5">
+              <span className="text-sm text-gray-700 font-mono font-medium leading-none mb-0.5">
                 {formatTimecode(Math.max(0, (emissionVideoRef.current?.currentTime || 0) - emissionTrim))}
               </span>
-              <span className="text-[10px] text-gray-400 font-mono leading-none">
+              <span className="text-xs text-gray-400 font-mono leading-none">
                 {formatTimecode(emissionVideoRef.current?.duration || 0)}
               </span>
             </div>
@@ -3591,7 +3507,6 @@ export const SyncDualPlayer: React.FC = () => {
               onClick={() => {
                 setIsEyedropperActive(!isEyedropperActive);
                 if (isEyedropperActive) {
-                  setHoverColor(null);
                   setEyedropperDrops([]);
                 }
               }}
