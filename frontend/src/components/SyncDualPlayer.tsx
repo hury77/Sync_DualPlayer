@@ -1129,9 +1129,11 @@ export const SyncDualPlayer: React.FC = () => {
         if (Math.abs(activeRulerLine.endX - rulerStartPoint.x) > 5 || Math.abs(activeRulerLine.endY - rulerStartPoint.y) > 5) {
           setRulerLines(prev => [...prev, activeRulerLine]);
           setRulerStartPoint(null);
+          setActiveRulerLine(null);
         }
+      } else {
+        setActiveRulerLine(null);
       }
-      setActiveRulerLine(null);
     }
     
     if (isOcrActive && activeOcrBox) {
@@ -2536,6 +2538,19 @@ export const SyncDualPlayer: React.FC = () => {
                 className="absolute pointer-events-none w-2.5 h-2.5 rounded-full border border-white shadow-[0_0_2px_rgba(0,0,0,0.8)]"
                 style={{ left: pos.x - 5, top: pos.y - 5, backgroundColor: drop.hex }}
               />
+              <div 
+                className="absolute pointer-events-none flex items-center bg-gray-900/95 text-white rounded-xl shadow-2xl border border-gray-700/50 p-2 backdrop-blur-md"
+                style={{ left: pos.x + 10, top: pos.y + 10 }}
+              >
+                <div 
+                  className="w-8 h-8 rounded-md border-2 border-white/20 shadow-inner mr-2"
+                  style={{ backgroundColor: drop.hex }}
+                ></div>
+                <div className="flex flex-col font-mono text-[10px] pr-1">
+                  <span className="font-bold text-gray-100 mb-0.5 tracking-wider">{drop.hex}</span>
+                  <span className="text-gray-400">RGB: <span className="text-gray-200">{drop.r},{drop.g},{drop.b}</span></span>
+                </div>
+              </div>
             </React.Fragment>
           );
         })}
