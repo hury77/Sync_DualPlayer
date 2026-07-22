@@ -206,9 +206,14 @@ export const SyncDualPlayer: React.FC = () => {
   const [wipePosition, setWipePosition] = useState(50); // 0-100%
   const [heatmapOpacity, setHeatmapOpacity] = useState(75); // 0-100%
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [diffTimestamps, setDiffTimestamps] = useState<
-    { time: number; severity: "certain" | "review" }[]
-  >([]);
+  const [diffTimestamps, setDiffTimestamps] = useState<{time: number, severity: "certain" | "review", type?: "video" | "audio"}[]>([]);
+  const [diffSensitivity, setDiffSensitivity] = useState<"low" | "medium" | "high">("medium");
+  const [audioWarningVisible, setAudioWarningVisible] = useState(false);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const accAnalyserRef = useRef<AnalyserNode | null>(null);
+  const emiAnalyserRef = useRef<AnalyserNode | null>(null);
+  const accGainRef = useRef<GainNode | null>(null);
+  const emiGainRef = useRef<GainNode | null>(null);
   const [screenshotSaving, setScreenshotSaving] = useState(false);
 
   // ── Single Player Mode State ────────────────────────────────────────────────
@@ -496,6 +501,7 @@ export const SyncDualPlayer: React.FC = () => {
   const wipePositionRef = useRef(50);
   const diffViewModeRef = useRef<"wipe" | "heatmap">("heatmap");
   const heatmapOpacityRef = useRef(75);
+  const diffSensitivityRef = useRef<"low" | "medium" | "high">("medium");
 
   // Diff overlay refs
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -509,7 +515,7 @@ export const SyncDualPlayer: React.FC = () => {
   const wipeContainerRef = useRef<HTMLDivElement>(null);
   const isDraggingWipeRef = useRef(false);
   // Track already-logged timestamps (keyed by rounded second)
-  const loggedTimesRef = useRef<Set<number>>(new Set());
+  const loggedTimesRef = useRef<Set<string | number>>(new Set());
   // Canvas-based wipe display (draws directly from main video refs - no extra <video> elements)
 
   // Check if a file is standard browser playable (like .mp4)
@@ -1231,20 +1237,59 @@ export const SyncDualPlayer: React.FC = () => {
     }
     setIsPlaying(false);
     setCurrentTime(time);
-  }, []);
+  }, [acceptanceTrim, emissionTrim]);
+
+  const setupAudioContext = useCallback(() => {
+    if (audioCtxRef.current) return;
+    
+    const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContext) return;
+    
+    const ctx = new AudioContext();
+    audioCtxRef.current = ctx;
+
+    const accVid = acceptanceVideoRef.current;
+    const emiVid = emissionVideoRef.current;
+    
+    const setupNode = (vid: HTMLVideoElement, refAnalyser: React.MutableRefObject<AnalyserNode | null>, refGain: React.MutableRefObject<GainNode | null>, volume: number) => {
+      if (!vid) return;
+      try {
+        if (!(vid as any)._audioSource) {
+          (vid as any)._audioSource = ctx.createMediaElementSource(vid);
+        }
+        const source = (vid as any)._audioSource;
+        const analyser = ctx.createAnalyser();
+        const gain = ctx.createGain();
+        analyser.fftSize = 256;
+        
+        source.connect(analyser);
+        analyser.connect(gain);
+        gain.connect(ctx.destination);
+        
+        refAnalyser.current = analyser;
+        refGain.current = gain;
+        gain.gain.value = isMuted ? 0 : volume;
+      } catch (err) {
+        console.error("Audio WebAPI error:", err);
+      }
+    };
+
+    setupNode(accVid!, accAnalyserRef, accGainRef, acceptanceVolume);
+    setupNode(emiVid!, emiAnalyserRef, emiGainRef, emissionVolume);
+  }, [isMuted, acceptanceVolume, emissionVolume]);
 
   /** Capture one frame from each video, diff them in the Worker, paint overlay */
   const analyzeCurrentFrame = useCallback(() => {
     const accVideo = acceptanceVideoRef.current;
     const emiVideo = emissionVideoRef.current;
-    const canvas = overlayCanvasRef.current;
-    if (!accVideo || !emiVideo || !canvas || !diffWorkerRef.current) return;
+    if (!accVideo || !emiVideo || !overlayCanvasRef.current || !diffWorkerRef.current) return;
     if (accVideo.readyState < 2 || emiVideo.readyState < 2) return;
 
     // Use the smaller of the two resolutions to avoid stretching
     const { w: W, h: H } = getBoundedDimensions(accVideo.videoWidth, accVideo.videoHeight);
     if (W === 0 || H === 0) return;
 
+    const canvas = document.createElement("canvas");
     canvas.width  = W;
     canvas.height = H;
 
@@ -1261,8 +1306,10 @@ export const SyncDualPlayer: React.FC = () => {
     tmpCtx.drawImage(emiVideo, 0, 0, W, H);
     const emiData = tmpCtx.getImageData(0, 0, W, H);
 
+    const sensitivity = diffSensitivityRef.current;
+    
     diffWorkerRef.current.postMessage(
-      { acceptanceData: accData, emissionData: emiData, width: W, height: H },
+      { acceptanceData: accData, emissionData: emiData, width: W, height: H, sensitivity },
       [accData.data.buffer, emiData.data.buffer]
     );
   }, []);
@@ -1284,13 +1331,24 @@ export const SyncDualPlayer: React.FC = () => {
 
     // Create Web Worker inline via Blob to avoid CRA webpack Worker loader issues
     const workerCode = `
-      const THRESHOLD_AUTOMATION = 30;
-      const THRESHOLD_REVIEW = 15;
       self.onmessage = function(e) {
         var acceptanceData = e.data.acceptanceData;
         var emissionData   = e.data.emissionData;
         var width  = e.data.width;
         var height = e.data.height;
+        var sensitivity = e.data.sensitivity || "medium";
+        
+        var THRESHOLD_AUTOMATION = 30;
+        var THRESHOLD_REVIEW = 15;
+        
+        if (sensitivity === "low") {
+          THRESHOLD_AUTOMATION = 45;
+          THRESHOLD_REVIEW = 25;
+        } else if (sensitivity === "high") {
+          THRESHOLD_AUTOMATION = 20;
+          THRESHOLD_REVIEW = 10;
+        }
+
         var total  = width * height;
         var overlay = new Uint8ClampedArray(total * 4);
         var certain = 0, review = 0;
@@ -1349,15 +1407,47 @@ export const SyncDualPlayer: React.FC = () => {
     setIsAnalyzing(true);
     loggedTimesRef.current.clear();
     setDiffTimestamps([]);
+    setupAudioContext();
 
     // Analyze once immediately, then every 500ms during playback
     analyzeCurrentFrame();
     analysisIntervalRef.current = setInterval(() => {
       if (!acceptanceVideoRef.current?.paused) {
         analyzeCurrentFrame();
+        
+        // Analyze Audio Diff
+        const accAna = accAnalyserRef.current;
+        const emiAna = emiAnalyserRef.current;
+        if (accAna && emiAna) {
+          const accData = new Uint8Array(accAna.frequencyBinCount);
+          const emiData = new Uint8Array(emiAna.frequencyBinCount);
+          accAna.getByteFrequencyData(accData);
+          emiAna.getByteFrequencyData(emiData);
+          
+          let sum = 0;
+          for (let i = 0; i < accData.length; i++) {
+            sum += Math.abs(accData[i] - emiData[i]);
+          }
+          const diffAvg = sum / accData.length;
+          
+          if (diffAvg > 15) {
+            const time = acceptanceVideoRef.current?.currentTime || 0;
+            const roundedTime = Math.floor(time);
+            if (!loggedTimesRef.current.has(roundedTime + "-audio")) {
+              loggedTimesRef.current.add(roundedTime + "-audio");
+              setDiffTimestamps(prev => [
+                ...prev,
+                { time, severity: "certain", type: "audio" }
+              ]);
+            }
+            setAudioWarningVisible(true);
+            if ((window as any).audioWarningTimeout) clearTimeout((window as any).audioWarningTimeout);
+            (window as any).audioWarningTimeout = setTimeout(() => setAudioWarningVisible(false), 1000);
+          }
+        }
       }
     }, 500);
-  }, [analyzeCurrentFrame]);
+  }, [analyzeCurrentFrame, setupAudioContext]);
 
   /** Stop diff mode: terminate Worker, clear overlay */
   const deactivateDiffMode = useCallback(() => {
@@ -1418,7 +1508,8 @@ export const SyncDualPlayer: React.FC = () => {
     wipePositionRef.current = wipePosition;
     diffViewModeRef.current = diffViewMode;
     heatmapOpacityRef.current = heatmapOpacity;
-  }, [wipePosition, diffViewMode, heatmapOpacity]);
+    diffSensitivityRef.current = diffSensitivity;
+  }, [wipePosition, diffViewMode, heatmapOpacity, diffSensitivity]);
 
   // ── Canvas-based Wipe RAF loop ────────────────────────────────────────────
   // Draws acceptance (clipped) + emission + diff overlay directly from the main
@@ -2860,24 +2951,47 @@ export const SyncDualPlayer: React.FC = () => {
                   Heatmap
                 </button>
               </div>
+              {diffViewMode === "heatmap" && (
+                <div className="flex items-center gap-2 px-3 py-1 bg-white border border-gray-200 rounded-lg shadow-sm">
+                  <input
+                    type="range"
+                    min="10"
+                    max="100"
+                    step="5"
+                    value={heatmapOpacity}
+                    onChange={(e) => setHeatmapOpacity(parseInt(e.target.value))}
+                    className="w-24 h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-gray-700"
+                  />
+                  <span className="text-xs text-gray-400 font-mono w-8">{heatmapOpacity}%</span>
+                </div>
+              )}
+              
+              <div className="flex items-center gap-2 px-3 py-1 bg-white border border-gray-200 rounded-lg shadow-sm">
+                <span className="text-xs text-gray-500 font-semibold">Czułość:</span>
+                <select 
+                  value={diffSensitivity}
+                  onChange={(e) => setDiffSensitivity(e.target.value as any)}
+                  className="bg-transparent text-xs text-gray-700 font-medium focus:outline-none cursor-pointer"
+                >
+                  <option value="low">Niska</option>
+                  <option value="medium">Średnia</option>
+                  <option value="high">Wysoka</option>
+                </select>
+              </div>
+              
+              {audioWarningVisible && (
+                <div className="flex items-center gap-1.5 px-3 py-1 bg-red-100 border border-red-300 rounded-lg shadow-sm animate-pulse">
+                  <SpeakerXMarkIcon className="w-4 h-4 text-red-600" />
+                  <span className="text-xs text-red-700 font-bold">Audio Diff!</span>
+                </div>
+              )}
               <span className="flex items-center gap-1.5 text-xs text-gray-400 border-l border-gray-700 pl-4 ml-1">
                 <span className="w-3 h-3 rounded-sm bg-red-600 inline-block" /> Certain diff
                 <span className="w-3 h-3 rounded-sm bg-yellow-400 inline-block ml-2" /> Needs review
               </span>
             </div>
             <div className="flex items-center gap-4">
-              {diffViewMode === "heatmap" && (
-                <div className="flex items-center gap-2 mr-2">
-                  <span className="text-xs text-gray-400">Opacity:</span>
-                  <input
-                    type="range" min={0} max={100} step={1}
-                    value={heatmapOpacity}
-                    onChange={(e) => setHeatmapOpacity(parseInt(e.target.value))}
-                    className="w-32 h-1.5 appearance-none bg-gray-700 rounded accent-red-500 cursor-pointer"
-                  />
-                  <span className="text-xs text-gray-400 font-mono w-8">{heatmapOpacity}%</span>
-                </div>
-              )}
+
               <button
                 onClick={() => analyzeCurrentFrame()}
                 className="text-xs px-3 py-1 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 transition-colors whitespace-nowrap"
@@ -2928,20 +3042,22 @@ export const SyncDualPlayer: React.FC = () => {
             <span className="text-xs text-gray-400">Click to seek playback</span>
           </div>
           <div className="flex flex-wrap gap-2 p-4">
-            {diffTimestamps.map((ts, i) => (
-              <button
-                key={i}
-                onClick={() => teleportToTimestamp(ts.time)}
-                title={ts.severity === "certain" ? "Pewna różnica" : "Do sprawdzenia"}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-semibold border transition-all hover:scale-105 ${
-                  ts.severity === "certain"
-                    ? "bg-red-50 border-red-200 text-red-700 hover:bg-red-100"
-                    : "bg-yellow-50 border-yellow-200 text-yellow-700 hover:bg-yellow-100"
-                }`}
-              >
-                <span className={`w-2 h-2 rounded-full ${
-                  ts.severity === "certain" ? "bg-red-500" : "bg-yellow-400"
-                }`} />
+              {diffTimestamps.map((ts, i) => (
+                <button
+                  key={i}
+                  onClick={() => teleportToTimestamp(ts.time)}
+                  title={ts.type === "audio" ? "Różnica w audio" : (ts.severity === "certain" ? "Pewna różnica" : "Do sprawdzenia")}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-semibold border transition-all hover:scale-105 ${
+                    ts.type === "audio"
+                      ? "bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100"
+                      : ts.severity === "certain"
+                        ? "bg-red-50 border-red-200 text-red-700 hover:bg-red-100"
+                        : "bg-yellow-50 border-yellow-200 text-yellow-700 hover:bg-yellow-100"
+                  }`}
+                >
+                  <span className={`w-2 h-2 rounded-full ${
+                    ts.type === "audio" ? "bg-blue-500" : (ts.severity === "certain" ? "bg-red-500" : "bg-yellow-400")
+                  }`} />
                 {formatTimecode(ts.time)}
               </button>
             ))}
@@ -3454,8 +3570,8 @@ export const SyncDualPlayer: React.FC = () => {
               {/* Diff Markers */}
               {duration > 0 && diffTimestamps.map(t => (
                 <div 
-                  key={t.time}
-                  className={`absolute top-1/2 -translate-y-1/2 h-4 w-0.5 z-10 pointer-events-none rounded-full ${t.severity === 'certain' ? 'bg-red-500/80' : 'bg-yellow-500/80'}`}
+                  key={t.time + (t.type || "video")}
+                  className={`absolute top-1/2 -translate-y-1/2 h-4 w-0.5 z-10 pointer-events-none rounded-full ${t.type === 'audio' ? 'bg-blue-500' : (t.severity === 'certain' ? 'bg-red-500/80' : 'bg-yellow-500/80')}`}
                   style={{ left: `${(t.time / duration) * 100}%` }}
                 />
               ))}
@@ -3795,7 +3911,7 @@ export const SyncDualPlayer: React.FC = () => {
                 value={ocrBriefText}
                 onChange={(e) => setOcrBriefText(e.target.value)}
                 placeholder="Paste brief text here..."
-                className={`w-full p-3 text-sm border border-gray-300 rounded-lg focus:ring-purple-500 focus:border-purple-500 resize-none font-mono ${isSinglePlayerMode && isHorizontalLayout ? 'h-20' : 'h-32'}`}
+                className={`w-full p-3 text-sm border border-gray-300 rounded-lg focus:ring-purple-500 focus:border-purple-500 resize-none font-sans ${isSinglePlayerMode && isHorizontalLayout ? 'h-20' : 'h-32'}`}
               />
             </div>
             
@@ -3814,7 +3930,7 @@ export const SyncDualPlayer: React.FC = () => {
                 value={ocrTextAcceptance}
                 readOnly
                 placeholder="Text extracted from Acceptance video will appear here..."
-                className={`w-full p-3 text-sm border border-gray-300 bg-gray-50 rounded-lg focus:outline-none resize-none font-mono ${isSinglePlayerMode && isHorizontalLayout ? 'h-20' : 'h-32'}`}
+                className={`w-full p-3 text-sm border border-gray-300 bg-gray-50 rounded-lg focus:outline-none resize-none font-sans ${isSinglePlayerMode && isHorizontalLayout ? 'h-20' : 'h-32'}`}
               />
             </div>
             
@@ -3833,7 +3949,7 @@ export const SyncDualPlayer: React.FC = () => {
                 value={ocrTextEmission}
                 readOnly
                 placeholder="Text extracted from Emission video will appear here..."
-                className={`w-full p-3 text-sm border border-gray-300 bg-gray-50 rounded-lg focus:outline-none resize-none font-mono ${isSinglePlayerMode && isHorizontalLayout ? 'h-20' : 'h-32'}`}
+                className={`w-full p-3 text-sm border border-gray-300 bg-gray-50 rounded-lg focus:outline-none resize-none font-sans ${isSinglePlayerMode && isHorizontalLayout ? 'h-20' : 'h-32'}`}
               />
             </div>
           </div>
