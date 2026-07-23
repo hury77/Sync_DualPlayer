@@ -15,6 +15,8 @@ import {
   CameraIcon,
   EyeDropperIcon,
   DocumentTextIcon,
+  SunIcon,
+  MoonIcon,
 } from "@heroicons/react/24/outline";
 import Tesseract from "tesseract.js";
 import { diffWords, diffChars } from "diff";
@@ -115,7 +117,133 @@ const getBoundedDimensions = (vw: number, vh: number, maxW = 1280, maxH = 1280) 
   return { w: Math.round(vw * scale), h: Math.round(vh * scale) };
 };
 
+
+const uiTranslations = {
+  pl: {
+    singlePlayer: "Pojedynczy odtwarzacz",
+    dualPlayer: "Dwa odtwarzacze",
+    uploadVideo1: "Wgraj Video 1",
+    uploadVideo2: "Wgraj Video 2",
+    dropVideoHere: "Upuść plik wideo tutaj...",
+    selectFileFromDisk: "Wybierz plik z dysku",
+    playPause: "Odtwarzaj / Pauza",
+    play: "Odtwórz",
+    pause: "Pauza",
+    rewind: "Przewiń do tyłu",
+    forward: "Przewiń do przodu",
+    prevFrame: "Poprzednia klatka",
+    nextFrame: "Następna klatka",
+    zoom: "Skalowanie (Zoom)",
+    tools: "Narzędzia",
+    heatmapMode: "Tryb Heatmapy (Diff)",
+    sensitivity: "Suwak Czułości (Heatmapa)",
+    low: "Niska",
+    medium: "Średnia",
+    high: "Wysoka",
+    ruler: "Linijka",
+    eyedropper: "Kroplomierz",
+    copyText: "Kopiuj tekst",
+    copied: "Skopiowano!",
+    extractedText: "Wyciągnięty Tekst (OCR)",
+    saveFrame: "Zapisz klatkę",
+    volume: "Głośność",
+    video1: "Video 1",
+    video2: "Video 2",
+    pixels: "Piksele:",
+    audioDiff: "Różnice audio",
+    playerMode: "Tryb odtwarzacza",
+    videoLoadingError: "Video Loading Error",
+    changeToDarkBg: "Zmień na ciemne tło wideo",
+    changeToLightBg: "Zmień na jasne tło wideo",
+    uploadLocBrief: "Wgraj LOC Brief (.xlsx)",
+    chooseRowFromExcel: "Wybierz wiersz z pliku Excel (Copydeck):",
+    comparisonResult: "Wynik Porównania (Różnice)",
+    turnOffEyedropper: "Wyłącz próbnik koloru (Kroplomierz)",
+    turnOnEyedropper: "Włącz próbnik koloru (Kroplomierz, aktywny na pauzie)",
+    turnOffRuler: "Wyłącz miarkę (Linijka)",
+    turnOnRuler: "Włącz miarkę pikseli (Linijka, aktywna na pauzie)",
+    audioDiffAlert: "Rozjazd Audio!",
+    videoPreviewInsp: "Video Preview (Inspection)",
+    heatmapModeShort: "Tryb Heatmapy",
+    sensitivityShort: "Suwak Czułości",
+    subtitle: "Automatyczny audyt wideo: weryfikacja wizualna, parsowanie Excela (Copydeck) i porównywanie tekstu w locie (OCR).",
+    dragAcceptance: "Przeciągnij i upuść wideo Acceptance",
+    dragEmission: "Przeciągnij i upuść wideo Emission",
+    dual: "Dual",
+    single: "Single"
+  },
+  en: {
+    singlePlayer: "Single Player",
+    dualPlayer: "Dual Player",
+    uploadVideo1: "Upload Video 1",
+    uploadVideo2: "Upload Video 2",
+    dropVideoHere: "Drop video file here...",
+    selectFileFromDisk: "Select file from disk",
+    playPause: "Play / Pause",
+    play: "Play",
+    pause: "Pause",
+    rewind: "Rewind",
+    forward: "Fast Forward",
+    prevFrame: "Previous Frame",
+    nextFrame: "Next Frame",
+    zoom: "Zoom",
+    tools: "Tools",
+    heatmapMode: "Heatmap Mode (Diff)",
+    sensitivity: "Sensitivity Slider (Heatmap)",
+    low: "Low",
+    medium: "Medium",
+    high: "High",
+    ruler: "Ruler",
+    eyedropper: "Eyedropper",
+    copyText: "Copy text",
+    copied: "Copied!",
+    extractedText: "Extracted Text (OCR)",
+    saveFrame: "Save frame",
+    volume: "Volume",
+    video1: "Video 1",
+    video2: "Video 2",
+    pixels: "Pixels:",
+    audioDiff: "Audio Diff",
+    playerMode: "Player Mode",
+    videoLoadingError: "Video Loading Error",
+    changeToDarkBg: "Change to dark background",
+    changeToLightBg: "Change to light background",
+    uploadLocBrief: "Upload LOC Brief (.xlsx)",
+    chooseRowFromExcel: "Choose row from Excel file (Copydeck):",
+    comparisonResult: "Comparison Result (Differences)",
+    turnOffEyedropper: "Turn off eyedropper",
+    turnOnEyedropper: "Turn on eyedropper (active on pause)",
+    turnOffRuler: "Turn off ruler",
+    turnOnRuler: "Turn on pixel ruler (active on pause)",
+    audioDiffAlert: "Audio Diff!",
+    videoPreviewInsp: "Video Preview (Inspection)",
+    heatmapModeShort: "Heatmap Mode",
+    sensitivityShort: "Sensitivity Slider",
+    subtitle: "Automated video audit: visual verification, Excel parsing (Copydeck) and on-the-fly text comparison (OCR).",
+    dragAcceptance: "Drag and drop Acceptance video",
+    dragEmission: "Drag and drop Emission video",
+    dual: "Dual",
+    single: "Single"
+  }
+};
+
 export const SyncDualPlayer: React.FC = () => {
+
+  const [language, setLanguage] = useState<'pl' | 'en'>('pl');
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    return (localStorage.getItem('theme') as 'light' | 'dark') || 'light';
+  });
+
+  useEffect(() => {
+    if (theme === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+    localStorage.setItem('theme', theme);
+  }, [theme]);
+
+  const t = (key: keyof typeof uiTranslations.pl) => uiTranslations[language][key];
   const [acceptanceFile, setAcceptanceFile] = useState<VideoFile | null>(null);
   const [emissionFile, setEmissionFile] = useState<VideoFile | null>(null);
 
@@ -2723,52 +2851,78 @@ export const SyncDualPlayer: React.FC = () => {
     <div className={`${isSinglePlayerMode && !isHorizontalLayout ? 'max-w-7xl mx-auto' : 'w-full'} px-4 py-4 pb-4 transition-all duration-500`}>
 
       {/* Title Header */}
-      <div className="mb-6 flex items-start gap-5">
-        <div className="flex-shrink-0 w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-600 via-purple-600 to-fuchsia-500 shadow-lg flex items-center justify-center transform hover:scale-105 transition-all duration-300 ring-4 ring-white">
-          <svg className="w-7 h-7 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-            <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-          </svg>
+      <div className="mb-6 flex justify-between items-start gap-5">
+        <div className="flex items-start gap-5">
+          <div className="flex-shrink-0 w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-600 via-purple-600 to-fuchsia-500 shadow-lg flex items-center justify-center transform hover:scale-105 transition-all duration-300 ring-4 ring-white">
+            <svg className="w-7 h-7 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+            </svg>
+          </div>
+          <div className="flex flex-col justify-center pt-0.5">
+            <h2 className="text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-gray-900 to-gray-600 dark:from-gray-100 dark:to-gray-400 mb-1 tracking-tight flex items-center">
+              VITO <span className="text-gray-400 dark:text-gray-300 font-medium text-2xl tracking-normal mx-3">Video Inspector Tool Observer</span><span className="text-xs text-[#350F9C] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-[#350F9C]/10 border border-[#350F9C]/30 shadow-sm align-middle mt-1">v2.3</span>
+            </h2>
+          </div>
         </div>
-        <div className="flex flex-col justify-center pt-0.5">
-          <h2 className="text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-gray-900 to-gray-600 mb-1 tracking-tight flex items-center">
-            VITO <span className="text-gray-400 font-medium text-2xl tracking-normal mx-3">Video Inspector Tool Observer</span><span className="text-xs text-purple-600 font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-purple-100/50 border border-purple-200 shadow-sm align-middle mt-1">v2.3</span>
-          </h2>
-          <p className="text-gray-500 text-sm md:text-base font-medium max-w-4xl leading-relaxed">
-            Automatyczny audyt wideo: weryfikacja wizualna, parsowanie Excela (Copydeck) i porównywanie tekstu w locie (OCR).
-          </p>
+
+        {/* ── Language & Theme Switchers ── */}
+        <div className="flex items-center gap-2 mt-2">
+          {/* Theme Toggle */}
+          <button
+            onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
+            className="p-1.5 rounded-lg bg-[#4960E6] hover:bg-white hover:text-[#4960E6] text-white disabled:hover:bg-[#4960E6] disabled:hover:text-white transition-colors shadow-sm border border-white/10"
+            title={theme === 'light' ? 'Switch to Dark Mode' : 'Switch to Light Mode'}
+          >
+            {theme === 'light' ? <MoonIcon className="w-4 h-4" /> : <SunIcon className="w-4 h-4" />}
+          </button>
+          
+          <div className="flex bg-black/10 rounded-lg p-1 relative shadow-sm border border-white/10">
+            <button 
+              onClick={() => setLanguage('pl')} 
+              className={`relative z-10 px-3 py-1 text-[11px] font-bold rounded-md transition-colors text-center uppercase tracking-wider ${language === 'pl' ? 'bg-[#4960E6] text-white shadow-sm ring-1 ring-black/5' : 'text-white/70 hover:text-white hover:bg-white/10'}`}
+            >
+              PL
+            </button>
+            <button 
+              onClick={() => setLanguage('en')} 
+              className={`relative z-10 px-3 py-1 text-[11px] font-bold rounded-md transition-colors text-center uppercase tracking-wider ${language === 'en' ? 'bg-[#4960E6] text-white shadow-sm ring-1 ring-black/5' : 'text-white/70 hover:text-white hover:bg-white/10'}`}
+            >
+              EN
+            </button>
+          </div>
         </div>
       </div>
 
       {/* Top Toolbar */}
-      <div className="mb-6 flex flex-wrap items-center gap-3 p-2 bg-white rounded-2xl border border-gray-100 shadow-sm">
+      <div className="mb-6 flex flex-wrap items-center gap-3 p-2 bg-[#3E3E3E] dark:bg-[#350F9C] rounded-2xl border border-[#3E3E3E] dark:border-[#350F9C] shadow-sm">
         {/* ── Player Mode Toggle Switch ── */}
-        <div className="flex items-center gap-3 flex-shrink-0 bg-gray-50 px-3 py-1.5 rounded-xl border border-gray-200 shadow-sm">
-          <div className="flex bg-gray-200 rounded-lg p-1 relative">
+        <div className="flex items-center gap-3 flex-shrink-0 bg-black/10 px-3 py-1.5 rounded-xl border border-white/10 shadow-sm">
+          <div className="flex bg-black/20 rounded-lg p-1 relative">
             <button
               onClick={() => setIsSinglePlayerMode(false)}
               className={`relative z-10 px-4 py-1.5 text-xs font-semibold rounded-md transition-colors w-16 text-center ${
-                !isSinglePlayerMode ? 'text-white bg-gray-400' : 'text-gray-500 hover:text-gray-700'
+                !isSinglePlayerMode ? 'text-white bg-[#4960E6]' : 'text-white/70 hover:text-white'
               }`}
             >
-              Dual
+              {t("dual")}
             </button>
             <button
               onClick={() => { setIsSinglePlayerMode(true); if (diffMode) deactivateDiffMode(); }}
               className={`relative z-10 px-4 py-1.5 text-xs font-semibold rounded-md transition-colors w-16 text-center ${
-                isSinglePlayerMode ? 'text-white bg-purple-600' : 'text-gray-500 hover:text-gray-700'
+                isSinglePlayerMode ? 'text-white bg-[#4960E6]' : 'text-white/70 hover:text-white'
               }`}
             >
-              Single
+              {t("single")}
             </button>
           </div>
 
           {isSinglePlayerMode && (
-            <div className="flex bg-gray-200 rounded-lg p-1 relative border-l border-gray-300 ml-2 pl-3">
+            <div className="flex bg-black/20 rounded-lg p-1 relative border-l border-white/20 ml-2 pl-3">
               <button
                 onClick={() => setSinglePlayerSource("acceptance")}
                 className={`relative z-10 px-3 py-1.5 text-[11px] font-semibold rounded-md transition-colors text-center ${
-                  singlePlayerSource === 'acceptance' ? 'text-white bg-purple-600' : 'text-gray-500 hover:text-gray-700'
+                  singlePlayerSource === 'acceptance' ? 'text-white bg-[#4960E6]' : 'text-white/70 hover:text-white'
                 }`}
               >
                 {acceptanceCustomName || "Video 1"}
@@ -2776,7 +2930,7 @@ export const SyncDualPlayer: React.FC = () => {
               <button
                 onClick={() => setSinglePlayerSource("emission")}
                 className={`relative z-10 px-3 py-1.5 text-[11px] font-semibold rounded-md transition-colors text-center ${
-                  singlePlayerSource === 'emission' ? 'text-white bg-purple-600' : 'text-gray-500 hover:text-gray-700'
+                  singlePlayerSource === 'emission' ? 'text-white bg-[#4960E6]' : 'text-white/70 hover:text-white'
                 }`}
               >
                 {emissionCustomName || "Video 2"}
@@ -2785,19 +2939,19 @@ export const SyncDualPlayer: React.FC = () => {
           )}
 
           {isSinglePlayerMode && (
-            <div className="flex items-center gap-2 ml-4 border-l border-gray-300 pl-4">
-              <span className={`text-xs font-semibold cursor-pointer ${!isHorizontalLayout ? 'text-gray-900' : 'text-gray-400'}`} onClick={() => setIsHorizontalLayout(false)}>Vertical</span>
-              <button onClick={() => setIsHorizontalLayout(h => !h)} className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${isHorizontalLayout ? 'bg-indigo-500' : 'bg-gray-300'}`}>
-                <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${isHorizontalLayout ? 'translate-x-5' : 'translate-x-1'}`} />
+            <div className="flex items-center gap-2 ml-4 border-l border-white/20 pl-4">
+              <span className={`text-xs font-semibold cursor-pointer ${!isHorizontalLayout ? 'text-white' : 'text-white/50'}`} onClick={() => setIsHorizontalLayout(false)}>Vertical</span>
+              <button onClick={() => setIsHorizontalLayout(h => !h)} className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${isHorizontalLayout ? 'bg-[#350F9C]/100' : 'bg-gray-300'}`}>
+                <span className={`inline-block h-3 w-3 transform rounded-full bg-white dark:bg-[#121212] transition-transform ${isHorizontalLayout ? 'translate-x-5' : 'translate-x-1'}`} />
               </button>
-              <span className={`text-xs font-semibold cursor-pointer ${isHorizontalLayout ? 'text-indigo-600' : 'text-gray-400'}`} onClick={() => setIsHorizontalLayout(true)}>Horizontal</span>
+              <span className={`text-xs font-semibold cursor-pointer ${isHorizontalLayout ? 'text-white' : 'text-white/50'}`} onClick={() => setIsHorizontalLayout(true)}>Horizontal</span>
             </div>
           )}
 
-          <div className="flex items-center gap-2 ml-4 border-l border-gray-300 pl-4">
+          <div className="flex items-center gap-2 ml-4 border-l border-white/20 pl-4">
             <button
               onClick={() => setIsVideoBgLight(b => !b)}
-              title={isVideoBgLight ? "Zmień na ciemne tło wideo" : "Zmień na jasne tło wideo"}
+              title={isVideoBgLight ? t("changeToDarkBg") : t("changeToLightBg")}
               className={`p-1.5 rounded-lg transition-colors border ${isVideoBgLight ? 'bg-slate-100 border-slate-300 text-slate-800' : 'bg-gray-800 border-gray-700 text-gray-200'}`}
             >
               {isVideoBgLight ? (
@@ -2814,15 +2968,15 @@ export const SyncDualPlayer: React.FC = () => {
           onClick={() => diffMode ? deactivateDiffMode() : activateDiffMode()}
           disabled={(!acceptanceFile || !emissionFile) || isSinglePlayerMode}
           title={diffMode ? "Disable Diff Overlay" : "Enable Diff Overlay"}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold shadow-sm transition-all disabled:opacity-100 disabled:bg-gray-100 disabled:text-gray-400 disabled:shadow-none disabled:cursor-not-allowed ${
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold shadow-sm transition-all disabled:opacity-100 disabled:text-white disabled:bg-[#4960E6] disabled:text-white disabled:shadow-none disabled:cursor-not-allowed ${
             diffMode
               ? "bg-red-600 hover:bg-red-700 text-white shadow-red-600/20"
-              : "bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-600/20"
+              : "bg-[#4960E6] hover:bg-white hover:text-[#4960E6] text-white disabled:hover:bg-[#4960E6] disabled:hover:text-white"
           }`}
         >
           {diffMode ? <EyeSlashIcon className="w-4 h-4" /> : <EyeIcon className="w-4 h-4" />}{diffMode ? "Diff Analysis ON" : "Diff Analysis OFF"}
           {isAnalyzing && diffMode && (
-            <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
+            <span className="w-2 h-2 rounded-full bg-white dark:bg-[#121212] animate-pulse" />
           )}
         </button>
 
@@ -2833,7 +2987,7 @@ export const SyncDualPlayer: React.FC = () => {
             className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold shadow-sm transition-all border
               ${showDiffHighlights 
                 ? 'bg-amber-100 border-amber-200 text-amber-700 hover:bg-amber-200' 
-                : 'bg-gray-100 border-gray-200 text-gray-500 hover:bg-gray-200'}`}
+                : 'bg-gray-100 dark:bg-[#1A1A1A] border-gray-200 dark:border-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:bg-gray-800'}`}
           >
             {showDiffHighlights ? <EyeIcon className="w-4 h-4" /> : <EyeSlashIcon className="w-4 h-4" />}
             {showDiffHighlights ? "Highlights ON" : "Highlights OFF"}
@@ -2845,11 +2999,11 @@ export const SyncDualPlayer: React.FC = () => {
             onClick={runPlaystationQA}
             disabled={!acceptanceFile || isPsQaAnalyzing || !isBriefUploaded}
             title={!isBriefUploaded ? "Musisz najpierw wgrać LOC Brief!" : "Automated PS Element Check"}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold shadow-sm transition-all disabled:opacity-100 disabled:bg-gray-100 disabled:text-gray-400 disabled:shadow-none disabled:cursor-not-allowed bg-green-600 hover:bg-green-700 text-white shadow-green-600/20`}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold shadow-sm transition-all disabled:opacity-100 disabled:bg-gray-100 dark:bg-[#1A1A1A] disabled:text-gray-400 disabled:shadow-none disabled:cursor-not-allowed bg-green-600 hover:bg-green-700 text-white shadow-green-600/20`}
           >
             <EyeIcon className="w-4 h-4" />
             {isPsQaAnalyzing ? "Scanning..." : "Run Playstation Auto-Check"}
-            {isPsQaAnalyzing && <span className="w-2 h-2 rounded-full bg-white animate-pulse" />}
+            {isPsQaAnalyzing && <span className="w-2 h-2 rounded-full bg-white dark:bg-[#121212] animate-pulse" />}
           </button>
         )}
 
@@ -2866,9 +3020,9 @@ export const SyncDualPlayer: React.FC = () => {
             <button
               onClick={() => briefInputRef.current?.click()}
               disabled={isUploadingBrief}
-              title="Wgraj LOC Brief (.xlsx)"
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold shadow-sm transition-all disabled:opacity-100 disabled:bg-gray-100 disabled:text-gray-400 disabled:shadow-none disabled:cursor-not-allowed ${
-                isBriefUploaded ? 'bg-cyan-600 hover:bg-cyan-700 text-white shadow-cyan-600/20' : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'
+              title={t("uploadLocBrief")}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold shadow-sm transition-all disabled:opacity-100 disabled:text-white disabled:bg-[#4960E6] disabled:text-white disabled:shadow-none disabled:cursor-not-allowed ${
+                isBriefUploaded ? 'bg-cyan-600 hover:bg-cyan-700 text-white shadow-cyan-600/20' : 'bg-white dark:bg-[#121212] border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:bg-[#191919]'
               }`}
             >
               <DocumentTextIcon className="w-4 h-4" />
@@ -2891,8 +3045,8 @@ export const SyncDualPlayer: React.FC = () => {
               onClick={() => copydeckInputRef.current?.click()}
               disabled={isUploadingCopydeck}
               title="Upload Copydeck Excel"
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold shadow-sm transition-all disabled:opacity-100 disabled:bg-gray-100 disabled:text-gray-400 disabled:shadow-none disabled:cursor-not-allowed ${
-                copydeckData ? 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-600/20' : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold shadow-sm transition-all disabled:opacity-100 disabled:text-white disabled:bg-[#4960E6] disabled:text-white disabled:shadow-none disabled:cursor-not-allowed ${
+                copydeckData ? 'bg-[#350F9C] hover:bg-[#350F9C] text-white shadow-[#350F9C]/20' : 'bg-white dark:bg-[#121212] border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:bg-[#191919]'
               }`}
             >
               <DocumentTextIcon className="w-4 h-4" />
@@ -2909,7 +3063,7 @@ export const SyncDualPlayer: React.FC = () => {
             onClick={() => setIsOcrActive(!isOcrActive)}
             disabled={!acceptanceFile}
             title="Compare Copy (OCR)"
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold shadow-sm transition-all disabled:opacity-100 disabled:bg-gray-100 disabled:text-gray-400 disabled:shadow-none disabled:cursor-not-allowed ${
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold shadow-sm transition-all disabled:opacity-100 disabled:text-white disabled:bg-[#4960E6] disabled:text-white disabled:shadow-none disabled:cursor-not-allowed ${
               isOcrActive
                 ? "bg-fuchsia-600 hover:bg-fuchsia-700 text-white shadow-fuchsia-600/20"
                 : "bg-blue-600 hover:bg-blue-700 text-white shadow-blue-600/20"
@@ -2924,7 +3078,7 @@ export const SyncDualPlayer: React.FC = () => {
           onClick={captureScreenshot}
           disabled={!acceptanceFile || (!isSinglePlayerMode && !emissionFile) || screenshotSaving}
           title="Save screenshot to Downloads"
-          className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold shadow-sm bg-gray-800 hover:bg-gray-900 text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed ml-auto"
+          className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold shadow-sm bg-[#4960E6] hover:bg-[#4960E6]/80 text-white transition-all disabled:opacity-100 disabled:text-white disabled:cursor-not-allowed ml-auto"
         >
           <CameraIcon className="w-4 h-4" />
           {screenshotSaving ? "Saving…" : "Save Screenshot"}
@@ -2936,6 +3090,8 @@ export const SyncDualPlayer: React.FC = () => {
         <div id="wipe-diff-container" className="mb-6 bg-gray-950 rounded-2xl overflow-hidden border border-gray-800 shadow-xl">
           <div className="px-5 py-3 flex items-center justify-between border-b border-gray-800">
             <div className="flex items-center gap-4">
+
+
               <span className="text-sm font-semibold text-white">Wipe / Diff View</span>
               <div className="flex bg-gray-800 rounded-lg p-0.5">
                 <button
@@ -2952,7 +3108,7 @@ export const SyncDualPlayer: React.FC = () => {
                 </button>
               </div>
               {diffViewMode === "heatmap" && (
-                <div className="flex items-center gap-2 px-3 py-1 bg-white border border-gray-200 rounded-lg shadow-sm">
+                <div className="flex items-center gap-2 px-3 py-1 bg-white dark:bg-[#121212] border border-gray-200 dark:border-gray-800 rounded-lg shadow-sm">
                   <input
                     type="range"
                     min="10"
@@ -2960,22 +3116,22 @@ export const SyncDualPlayer: React.FC = () => {
                     step="5"
                     value={heatmapOpacity}
                     onChange={(e) => setHeatmapOpacity(parseInt(e.target.value))}
-                    className="w-24 h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-gray-700"
+                    className="w-24 h-1 bg-gray-200 dark:bg-gray-800 rounded-lg appearance-none cursor-pointer accent-gray-700"
                   />
                   <span className="text-xs text-gray-400 font-mono w-8">{heatmapOpacity}%</span>
                 </div>
               )}
               
-              <div className="flex items-center gap-2 px-3 py-1 bg-white border border-gray-200 rounded-lg shadow-sm">
-                <span className="text-xs text-gray-500 font-semibold">Czułość:</span>
+              <div className="flex items-center gap-2 px-3 py-1 bg-white dark:bg-[#121212] border border-gray-200 dark:border-gray-800 rounded-lg shadow-sm">
+                <span className="text-xs text-gray-500 dark:text-gray-400 font-semibold">Czułość:</span>
                 <select 
                   value={diffSensitivity}
                   onChange={(e) => setDiffSensitivity(e.target.value as any)}
-                  className="bg-transparent text-xs text-gray-700 font-medium focus:outline-none cursor-pointer"
+                  className="bg-transparent text-xs text-gray-700 dark:text-gray-300 font-medium focus:outline-none cursor-pointer"
                 >
-                  <option value="low">Niska</option>
-                  <option value="medium">Średnia</option>
-                  <option value="high">Wysoka</option>
+                  <option value="low">{t("low")}</option>
+                  <option value="medium">{t("medium")}</option>
+                  <option value="high">{t("high")}</option>
                 </select>
               </div>
               
@@ -2991,6 +3147,8 @@ export const SyncDualPlayer: React.FC = () => {
               </span>
             </div>
             <div className="flex items-center gap-4">
+
+
 
               <button
                 onClick={() => analyzeCurrentFrame()}
@@ -3036,9 +3194,9 @@ export const SyncDualPlayer: React.FC = () => {
 
       {/* ── Diff Timestamps Panel ── */}
       {diffMode && diffTimestamps.length > 0 && (
-        <div className="mb-6 bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-          <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
-            <span className="text-sm font-semibold text-gray-800">Detected Issues ({diffTimestamps.length})</span>
+        <div className="mb-6 bg-white dark:bg-[#121212] rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm overflow-hidden">
+          <div className="px-5 py-3 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
+            <span className="text-sm font-semibold text-gray-800 dark:text-gray-200">Detected Issues ({diffTimestamps.length})</span>
             <span className="text-xs text-gray-400">Click to seek playback</span>
           </div>
           <div className="flex flex-wrap gap-2 p-4">
@@ -3081,8 +3239,8 @@ export const SyncDualPlayer: React.FC = () => {
           <div className={isSinglePlayerMode && isHorizontalLayout ? "h-full" : ""}>
       {/* ── Playstation QA Results Panel ── */}
       {isSinglePlayerMode && psQaMetadata && (
-        <div className={`bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden${isSinglePlayerMode && isHorizontalLayout ? " h-full" : " mb-6"}`}>
-          <div className="px-5 py-3 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-slate-50">
+        <div className={`bg-white dark:bg-[#121212] rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm overflow-hidden${isSinglePlayerMode && isHorizontalLayout ? " h-full" : " mb-6"}`}>
+          <div className="px-5 py-3 border-b border-gray-100 dark:border-gray-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-slate-50">
             <span className="text-sm font-bold text-slate-800 flex items-center gap-2">
               <span className="bg-blue-600 text-white text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider">PS Audit</span>
               Metadata Extracted
@@ -3092,20 +3250,20 @@ export const SyncDualPlayer: React.FC = () => {
                 </span>
               )}
             </span>
-            <span className="text-xs font-mono text-slate-500 bg-white px-3 py-1 rounded-md border border-slate-200">
+            <span className="text-xs font-mono text-slate-500 bg-white dark:bg-[#121212] px-3 py-1 rounded-md border border-slate-200">
               Target: {psQaMetadata.country}
             </span>
           </div>
           
           <div className={`p-5 grid grid-cols-1 sm:grid-cols-3 gap-4${isSinglePlayerMode && isHorizontalLayout && isOcrActive ? ' hidden' : ''}`}>
-            <div className={`p-4 rounded-xl border flex flex-col items-center justify-center text-center ${psQaResults ? (psQaResults.bing === 'FOUND' ? 'bg-green-50 border-green-200' : psQaResults.bing === 'INCORRECT' ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200') : 'bg-gray-50 border-gray-100'}`}>
-              <span className="text-xs text-gray-500 uppercase tracking-wider mb-2 font-semibold">BING</span>
+            <div className={`p-4 rounded-xl border flex flex-col items-center justify-center text-center ${psQaResults ? (psQaResults.bing === 'FOUND' ? 'bg-green-50 border-green-200' : psQaResults.bing === 'INCORRECT' ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200') : 'bg-gray-50 dark:bg-[#191919] border-gray-100 dark:border-gray-800'}`}>
+              <span className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2 font-semibold">BING</span>
               {psQaResults?.expected_bing_b64 && (
                 <div className="h-12 w-full flex items-center justify-center mb-2">
                   <img src={psQaResults.expected_bing_b64} alt="Expected BING" className="max-h-full max-w-full object-contain mix-blend-multiply opacity-90 drop-shadow-sm" />
                 </div>
               )}
-              <span className="text-sm font-medium text-gray-900">{psQaMetadata.bing}</span>
+              <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{psQaMetadata.bing}</span>
               {psQaResults && (
                 <span className={`mt-2 px-3 py-1 rounded-full text-[11px] font-bold ${psQaResults.bing === 'FOUND' ? 'bg-green-100 text-green-700' : psQaResults.bing === 'INCORRECT' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>
                   {psQaResults.bing === 'FOUND' ? "✅ FOUND" : psQaResults.bing === 'INCORRECT' ? "⚠️ INCORRECT VERSION" : "❌ CRITICAL: MISSING"}
@@ -3113,23 +3271,23 @@ export const SyncDualPlayer: React.FC = () => {
               )}
             </div>
             
-            <div className={`p-4 rounded-xl border flex flex-col items-center justify-center text-center ${psQaResults ? 'bg-amber-50 border-amber-200' : 'bg-gray-50 border-gray-100'}`}>
-              <span className="text-xs text-gray-500 uppercase tracking-wider mb-2 font-semibold">RATING</span>
+            <div className={`p-4 rounded-xl border flex flex-col items-center justify-center text-center ${psQaResults ? 'bg-amber-50 border-amber-200' : 'bg-gray-50 dark:bg-[#191919] border-gray-100 dark:border-gray-800'}`}>
+              <span className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2 font-semibold">RATING</span>
               {psQaResults && (
                 <div className="flex flex-row items-start justify-center gap-4 w-full mb-3">
                   {psQaResults.brief_rating_b64 ? (
                     <div className="flex flex-col items-center">
-                      <span className="text-[10px] text-gray-500 mb-1.5 font-bold uppercase tracking-wider">Brief</span>
-                      <div className="h-20 w-20 flex items-center justify-center bg-white rounded-md border border-gray-200 p-1.5 shadow-sm">
+                      <span className="text-[10px] text-gray-500 dark:text-gray-400 mb-1.5 font-bold uppercase tracking-wider">Brief</span>
+                      <div className="h-20 w-20 flex items-center justify-center bg-white dark:bg-[#121212] rounded-md border border-gray-200 dark:border-gray-800 p-1.5 shadow-sm">
                         <img src={psQaResults.brief_rating_b64} alt="Brief Icon" className="max-h-full max-w-full object-contain mix-blend-multiply" />
                       </div>
                     </div>
                   ) : (
-                    <span className="text-xs text-gray-500">Brief missing image</span>
+                    <span className="text-xs text-gray-500 dark:text-gray-400">Brief missing image</span>
                   )}
                 </div>
               )}
-              <span className="text-sm font-medium text-gray-900">{psQaMetadata.rating}</span>
+              <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{psQaMetadata.rating}</span>
               {psQaResults && (
                 <span className="mt-2 px-3 py-1 rounded-full text-[11px] font-bold bg-amber-100 text-amber-700">
                   ⚠️ VISUAL CHECK REQUIRED
@@ -3137,14 +3295,14 @@ export const SyncDualPlayer: React.FC = () => {
               )}
             </div>
             
-            <div className={`p-4 rounded-xl border flex flex-col items-center justify-center text-center ${psQaResults ? (['FOUND', 'CORRECT_NO_BONG'].includes(psQaResults.bong) ? 'bg-green-50 border-green-200' : ['INCORRECT'].includes(psQaResults.bong) ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200') : 'bg-gray-50 border-gray-100'}`}>
-              <span className="text-xs text-gray-500 uppercase tracking-wider mb-2 font-semibold">BONG</span>
+            <div className={`p-4 rounded-xl border flex flex-col items-center justify-center text-center ${psQaResults ? (['FOUND', 'CORRECT_NO_BONG'].includes(psQaResults.bong) ? 'bg-green-50 border-green-200' : ['INCORRECT'].includes(psQaResults.bong) ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200') : 'bg-gray-50 dark:bg-[#191919] border-gray-100 dark:border-gray-800'}`}>
+              <span className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2 font-semibold">BONG</span>
               {psQaResults?.expected_bong_b64 && (
                 <div className="h-12 w-full flex items-center justify-center mb-2">
                   <img src={psQaResults.expected_bong_b64} alt="Expected BONG" className="max-h-full max-w-full object-contain mix-blend-multiply opacity-90 drop-shadow-sm" />
                 </div>
               )}
-              <span className="text-sm font-medium text-gray-900">{psQaMetadata.bong}</span>
+              <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{psQaMetadata.bong}</span>
               {psQaResults && (
                 <span className={`mt-2 px-3 py-1 rounded-full text-[11px] font-bold ${['FOUND', 'CORRECT_NO_BONG'].includes(psQaResults.bong) ? 'bg-green-100 text-green-700' : ['INCORRECT'].includes(psQaResults.bong) ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>
                   {psQaResults.bong === 'FOUND' ? "✅ FOUND" : 
@@ -3163,20 +3321,20 @@ export const SyncDualPlayer: React.FC = () => {
           </div>
           <div className={isSinglePlayerMode && isHorizontalLayout ? "h-full" : ""}>
       {copydeckData && (
-        <div className={`bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden${isSinglePlayerMode && isHorizontalLayout ? " h-full" : " mb-6"}`}>
-          <div className="px-5 py-3 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-indigo-50">
+        <div className={`bg-white dark:bg-[#121212] rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm overflow-hidden${isSinglePlayerMode && isHorizontalLayout ? " h-full" : " mb-6"}`}>
+          <div className="px-5 py-3 border-b border-gray-100 dark:border-gray-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-[#350F9C]/10">
             <span className="text-sm font-bold text-indigo-900 flex items-center gap-2">
-              <span className="bg-indigo-600 text-white text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider">Excel Parser</span>
+              <span className="bg-[#350F9C] text-white text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider">Excel Parser</span>
               Copydeck Loaded Successfully
             </span>
-            <span className="text-xs font-mono text-indigo-700 bg-white px-3 py-1 rounded-md border border-indigo-200">
+            <span className="text-xs font-mono text-white bg-[#4960E6] dark:bg-[#121212] px-3 py-1 rounded-md border border-indigo-200">
               Languages: {copydeckData.languages.length}
             </span>
           </div>
           
           <div className={`px-5 py-3 flex gap-1.5 flex-wrap content-start${isSinglePlayerMode && isHorizontalLayout && isOcrActive ? ' hidden' : ''}`}>
             {copydeckData.languages.map((lang: string, idx: number) => (
-              <span key={idx} className="px-1.5 py-0.5 bg-gray-50 text-gray-500 text-[10px] font-medium rounded border border-gray-100">
+              <span key={idx} className="px-1.5 py-0.5 bg-gray-50 dark:bg-[#191919] text-gray-500 dark:text-gray-400 text-[10px] font-medium rounded border border-gray-100 dark:border-gray-800">
                 {lang}
               </span>
             ))}
@@ -3199,25 +3357,25 @@ export const SyncDualPlayer: React.FC = () => {
           onDragOver={handleDragOver}
           onDragLeave={(e) => handleDragLeave(e, "acceptance")}
           onDrop={(e) => handleDrop(e, "acceptance")}
-          className={`bg-white rounded-2xl shadow-sm border overflow-hidden transition-all duration-200 ${
-            isDraggingAcceptance ? "border-green-500 ring-4 ring-green-100 scale-[1.01]" : "border-gray-200"
+          className={`bg-white dark:bg-[#121212] rounded-2xl shadow-sm border overflow-hidden transition-all duration-200 ${
+            isDraggingAcceptance ? "border-green-500 ring-4 ring-green-100 scale-[1.01]" : "border-gray-200 dark:border-gray-800"
           } ${isSinglePlayerMode && !isHorizontalLayout ? "max-w-[90%] mx-auto w-full" : isSinglePlayerMode ? "w-full" : ""}`}
         >
           {/* Header Panel */}
-          <div className={`px-6 py-2 border-b border-gray-100 flex justify-between items-center h-[76px] ${
-            isSinglePlayerMode ? 'bg-purple-50/50' : 'bg-green-50/50'
+          <div className={`px-6 py-2 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center h-[76px] ${
+            isSinglePlayerMode ? 'bg-[#350F9C]/5' : 'bg-gray-50 dark:bg-[#1A1A1A]'
           }`}>
             <div>
               <input 
                 type="text"
-                value={isSinglePlayerMode ? 'Video Preview (Inspection)' : acceptanceCustomName}
+                value={isSinglePlayerMode ? t("videoPreviewInsp") : acceptanceCustomName}
                 onChange={(e) => setAcceptanceCustomName(e.target.value)}
                 readOnly={isSinglePlayerMode}
-                className={`font-semibold bg-transparent border-b border-transparent focus:border-green-300 focus:outline-none focus:ring-0 px-0 py-0 m-0 ${isSinglePlayerMode ? 'text-purple-800 cursor-default' : 'text-green-800 hover:bg-green-100/50 transition-colors'}`}
+                className={`font-semibold bg-transparent border-b border-transparent focus:border-[#350F9C]/50 focus:outline-none focus:ring-0 px-0 py-0 m-0 ${isSinglePlayerMode ? 'text-[#350F9C] cursor-default' : 'text-gray-800 dark:text-gray-200 hover:bg-gray-200/50 dark:hover:bg-gray-700/50 transition-colors'}`}
                 style={{ width: '100%', minWidth: '150px' }}
               />
               {acceptanceFile && (
-                <p className="text-xs text-gray-500 flex flex-wrap items-center mt-0.5" title={acceptanceFile.name}>
+                <p className="text-xs text-gray-500 dark:text-gray-400 flex flex-wrap items-center mt-0.5" title={acceptanceFile.name}>
                   <span className="truncate max-w-[200px] sm:max-w-[300px] md:max-w-[400px] lg:max-w-[500px]">{acceptanceFile.name}</span>
                   <span className="flex-shrink-0 ml-1.5 font-medium whitespace-nowrap">
                     • {formatFileSize(acceptanceFile.size)}
@@ -3229,7 +3387,7 @@ export const SyncDualPlayer: React.FC = () => {
             </div>
             {acceptanceFile && (
               <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                isSinglePlayerMode ? 'bg-purple-100 text-purple-800' : 'bg-green-100 text-green-800'
+                isSinglePlayerMode ? 'bg-[#350F9C]/10 text-[#350F9C]' : 'bg-gray-200 text-gray-700 dark:bg-gray-800 dark:text-gray-300'
               }`}>
                 {acceptanceFile.isLocal ? "Local" : "Server"}
               </span>
@@ -3258,7 +3416,7 @@ export const SyncDualPlayer: React.FC = () => {
 
             {acceptanceError && (
               <div className="absolute inset-0 z-30 bg-red-50 p-6 flex flex-col items-center justify-center text-center">
-                <p className="text-red-600 font-semibold mb-2">Video Loading Error</p>
+                <p className="text-red-600 font-semibold mb-2">{t("videoLoadingError")}</p>
                 <p className="text-xs text-red-500 max-w-sm mb-4">{acceptanceError}</p>
                 <button
                   onClick={() => setAcceptanceError(null)}
@@ -3291,9 +3449,9 @@ export const SyncDualPlayer: React.FC = () => {
                 }}
               />
             ) : (
-              <div className="w-full min-h-[300px] border-2 border-dashed border-gray-300 rounded-xl flex flex-col items-center justify-center p-6 text-center text-gray-400 bg-white">
+              <div className="w-full min-h-[300px] border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-xl flex flex-col items-center justify-center p-6 text-center text-gray-400 bg-white dark:bg-[#121212]">
                 <ArrowUpTrayIcon className="w-12 h-12 text-gray-300 mb-3" />
-                <p className="text-sm font-semibold text-gray-700">Drag and drop Acceptance video</p>
+                <p className="text-sm font-semibold text-gray-700 dark:text-gray-300">{t("dragAcceptance")}</p>
                 <p className="text-xs text-gray-400 mt-1">Supports MP4, MOV, MXF</p>
               </div>
             )}
@@ -3303,14 +3461,14 @@ export const SyncDualPlayer: React.FC = () => {
           </div>
 
           {/* Volume control */}
-          <div className="px-6 py-3 bg-gray-50/50 border-t border-gray-100 flex items-center space-x-3">
+          <div className="px-6 py-3 bg-gray-50 dark:bg-[#191919]/50 border-t border-gray-100 dark:border-gray-800 flex items-center space-x-3">
             <button
               disabled={!acceptanceFile}
               onClick={() => {
                 if (acceptanceVolume > 0) setAcceptanceVolume(0);
                 else setAcceptanceVolume(1);
               }}
-              className="p-1 text-gray-500 hover:text-gray-700 disabled:opacity-40"
+              className="p-1 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:text-gray-300 disabled:opacity-100 disabled:text-white"
             >
               {acceptanceVolume === 0 || isMuted ? (
                 <SpeakerXMarkIcon className="w-4 h-4 text-gray-400" />
@@ -3326,24 +3484,24 @@ export const SyncDualPlayer: React.FC = () => {
               value={isMuted ? 0 : acceptanceVolume}
               onChange={(e) => setAcceptanceVolume(parseFloat(e.target.value))}
               disabled={!acceptanceFile}
-              className="w-28 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-green-600 disabled:opacity-40"
+              className="w-28 h-1.5 bg-gray-200 dark:bg-gray-800 rounded-lg appearance-none cursor-pointer accent-green-600 disabled:opacity-100 disabled:text-white"
             />
             <span className="text-[10px] text-gray-400 w-8 tabular-nums font-semibold">
               {Math.round((isMuted ? 0 : acceptanceVolume) * 100)}%
             </span>
-            <div className="ml-2 pl-2 border-l border-gray-200 flex flex-col justify-center">
-              <span className="text-sm text-gray-700 font-mono font-medium leading-none mb-0.5">
+            <div className="ml-2 pl-2 border-l border-gray-200 dark:border-gray-800 flex flex-col justify-center">
+              <span className="text-sm text-white font-mono font-medium leading-none mb-0.5">
                 {formatTimecode(Math.max(0, (acceptanceVideoRef.current?.currentTime || 0) - acceptanceTrim))}
               </span>
               <span className="text-xs text-gray-400 font-mono leading-none">
                 {formatTimecode(acceptanceVideoRef.current?.duration || 0)}
               </span>
             </div>
-            <div className="ml-auto flex items-center space-x-1 text-xs text-gray-500 font-mono bg-white px-2 py-1 rounded border border-gray-200">
-              <label className="font-semibold text-gray-600 mr-1">Trim</label>
+            <div className="ml-auto flex items-center space-x-1 text-xs text-gray-500 dark:text-gray-400 font-mono bg-white dark:bg-[#121212] px-2 py-1 rounded border border-gray-200 dark:border-gray-800">
+              <label className="font-semibold text-gray-600 dark:text-gray-400 mr-1">Trim</label>
               <button 
                 onClick={() => setAcceptanceTrim(t => Math.max(0, t - 0.04))}
-                className="w-5 h-5 flex items-center justify-center bg-gray-100 rounded hover:bg-gray-200 text-gray-700"
+                className="w-5 h-5 flex items-center justify-center bg-gray-100 dark:bg-[#1A1A1A] rounded hover:bg-gray-200 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
                 disabled={!acceptanceFile}
               >-</button>
               <input
@@ -3356,11 +3514,11 @@ export const SyncDualPlayer: React.FC = () => {
                   setAcceptanceTrim(Math.round(val / 0.04) * 0.04);
                 }}
                 disabled={!acceptanceFile}
-                className="w-16 h-6 px-1 text-center bg-transparent focus:outline-none focus:ring-1 focus:ring-red-500 rounded disabled:opacity-40"
+                className="w-16 h-6 px-1 text-center bg-transparent focus:outline-none focus:ring-1 focus:ring-red-500 rounded disabled:opacity-100 disabled:text-white"
               />
               <button 
                 onClick={() => setAcceptanceTrim(t => t + 0.04)}
-                className="w-5 h-5 flex items-center justify-center bg-gray-100 rounded hover:bg-gray-200 text-gray-700"
+                className="w-5 h-5 flex items-center justify-center bg-gray-100 dark:bg-[#1A1A1A] rounded hover:bg-gray-200 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
                 disabled={!acceptanceFile}
               >+</button>
               <span className="ml-1">s</span>
@@ -3376,22 +3534,22 @@ export const SyncDualPlayer: React.FC = () => {
           onDragOver={handleDragOver}
           onDragLeave={(e) => handleDragLeave(e, "emission")}
           onDrop={(e) => handleDrop(e, "emission")}
-          className={`bg-white rounded-2xl shadow-sm border overflow-hidden transition-all duration-200 ${
-            isDraggingEmission ? "border-red-500 ring-4 ring-red-100 scale-[1.01]" : "border-gray-200"
+          className={`bg-white dark:bg-[#121212] rounded-2xl shadow-sm border overflow-hidden transition-all duration-200 ${
+            isDraggingEmission ? "border-red-500 ring-4 ring-red-100 scale-[1.01]" : "border-gray-200 dark:border-gray-800"
           } ${isSinglePlayerMode && !isHorizontalLayout ? "max-w-[90%] mx-auto w-full" : isSinglePlayerMode ? "w-full" : ""}`}
         >
           {/* Header Panel */}
-          <div className="px-6 py-2 border-b border-gray-100 bg-red-50/50 flex justify-between items-center h-[76px]">
+          <div className="px-6 py-2 border-b border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-[#1A1A1A] flex justify-between items-center h-[76px]">
             <div>
               <input 
                 type="text"
                 value={emissionCustomName}
                 onChange={(e) => setEmissionCustomName(e.target.value)}
-                className="font-semibold text-red-800 bg-transparent border-b border-transparent focus:border-red-300 focus:outline-none focus:ring-0 px-0 py-0 m-0 hover:bg-red-100/50 transition-colors"
+                className="font-semibold text-gray-800 dark:text-gray-200 bg-transparent border-b border-transparent focus:border-[#350F9C]/50 focus:outline-none focus:ring-0 px-0 py-0 m-0 hover:bg-gray-200/50 dark:hover:bg-gray-700/50 transition-colors"
                 style={{ width: '100%', minWidth: '150px' }}
               />
               {emissionFile && (
-                <p className="text-xs text-gray-500 flex flex-wrap items-center mt-0.5" title={emissionFile.name}>
+                <p className="text-xs text-gray-500 dark:text-gray-400 flex flex-wrap items-center mt-0.5" title={emissionFile.name}>
                   <span className="truncate max-w-[200px] sm:max-w-[300px] md:max-w-[400px] lg:max-w-[500px]">{emissionFile.name}</span>
                   <span className="flex-shrink-0 ml-1.5 font-medium whitespace-nowrap">
                     • {formatFileSize(emissionFile.size)}
@@ -3402,7 +3560,7 @@ export const SyncDualPlayer: React.FC = () => {
               )}
             </div>
             {emissionFile && (
-              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-red-100 text-red-800 uppercase">
+              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-gray-200 text-gray-700 dark:bg-gray-800 dark:text-gray-300 uppercase">
                 {emissionFile.isLocal ? "Local" : "Server"}
               </span>
             )}
@@ -3430,7 +3588,7 @@ export const SyncDualPlayer: React.FC = () => {
 
             {emissionError && (
               <div className="absolute inset-0 z-30 bg-red-50 p-6 flex flex-col items-center justify-center text-center">
-                <p className="text-red-600 font-semibold mb-2">Video Loading Error</p>
+                <p className="text-red-600 font-semibold mb-2">{t("videoLoadingError")}</p>
                 <p className="text-xs text-red-500 max-w-sm mb-4">{emissionError}</p>
                 <button
                   onClick={() => setEmissionError(null)}
@@ -3463,9 +3621,9 @@ export const SyncDualPlayer: React.FC = () => {
                 }}
               />
             ) : (
-              <div className="w-full min-h-[300px] border-2 border-dashed border-gray-300 rounded-xl flex flex-col items-center justify-center p-6 text-center text-gray-400 bg-white">
+              <div className="w-full min-h-[300px] border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-xl flex flex-col items-center justify-center p-6 text-center text-gray-400 bg-white dark:bg-[#121212]">
                 <ArrowUpTrayIcon className="w-12 h-12 text-gray-300 mb-3" />
-                <p className="text-sm font-semibold text-gray-700">Drag and drop Emission video</p>
+                <p className="text-sm font-semibold text-gray-700 dark:text-gray-300">{t("dragEmission")}</p>
                 <p className="text-xs text-gray-400 mt-1">Supports MP4, MOV, MXF</p>
               </div>
             )}
@@ -3475,14 +3633,14 @@ export const SyncDualPlayer: React.FC = () => {
           </div>
 
           {/* Volume control */}
-          <div className="px-6 py-3 bg-gray-50/50 border-t border-gray-100 flex items-center space-x-3">
+          <div className="px-6 py-3 bg-gray-50 dark:bg-[#191919]/50 border-t border-gray-100 dark:border-gray-800 flex items-center space-x-3">
             <button
               disabled={!emissionFile}
               onClick={() => {
                 if (emissionVolume > 0) setEmissionVolume(0);
                 else setEmissionVolume(1);
               }}
-              className="p-1 text-gray-500 hover:text-gray-700 disabled:opacity-40"
+              className="p-1 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:text-gray-300 disabled:opacity-100 disabled:text-white"
             >
               {emissionVolume === 0 || isMuted ? (
                 <SpeakerXMarkIcon className="w-4 h-4 text-gray-400" />
@@ -3498,24 +3656,24 @@ export const SyncDualPlayer: React.FC = () => {
               value={isMuted ? 0 : emissionVolume}
               onChange={(e) => setEmissionVolume(parseFloat(e.target.value))}
               disabled={!emissionFile}
-              className="w-28 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-red-600 disabled:opacity-40"
+              className="w-28 h-1.5 bg-gray-200 dark:bg-gray-800 rounded-lg appearance-none cursor-pointer accent-red-600 disabled:opacity-100 disabled:text-white"
             />
             <span className="text-[10px] text-gray-400 w-8 tabular-nums font-semibold">
               {Math.round((isMuted ? 0 : emissionVolume) * 100)}%
             </span>
-            <div className="ml-2 pl-2 border-l border-gray-200 flex flex-col justify-center">
-              <span className="text-sm text-gray-700 font-mono font-medium leading-none mb-0.5">
+            <div className="ml-2 pl-2 border-l border-gray-200 dark:border-gray-800 flex flex-col justify-center">
+              <span className="text-sm text-white font-mono font-medium leading-none mb-0.5">
                 {formatTimecode(Math.max(0, (emissionVideoRef.current?.currentTime || 0) - emissionTrim))}
               </span>
               <span className="text-xs text-gray-400 font-mono leading-none">
                 {formatTimecode(emissionVideoRef.current?.duration || 0)}
               </span>
             </div>
-            <div className="ml-auto flex items-center space-x-1 text-xs text-gray-500 font-mono bg-white px-2 py-1 rounded border border-gray-200">
-              <label className="font-semibold text-gray-600 mr-1">Trim</label>
+            <div className="ml-auto flex items-center space-x-1 text-xs text-gray-500 dark:text-gray-400 font-mono bg-white dark:bg-[#121212] px-2 py-1 rounded border border-gray-200 dark:border-gray-800">
+              <label className="font-semibold text-gray-600 dark:text-gray-400 mr-1">Trim</label>
               <button 
                 onClick={() => setEmissionTrim(t => Math.max(0, t - 0.04))}
-                className="w-5 h-5 flex items-center justify-center bg-gray-100 rounded hover:bg-gray-200 text-gray-700"
+                className="w-5 h-5 flex items-center justify-center bg-gray-100 dark:bg-[#1A1A1A] rounded hover:bg-gray-200 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
                 disabled={!emissionFile}
               >-</button>
               <input
@@ -3528,11 +3686,11 @@ export const SyncDualPlayer: React.FC = () => {
                   setEmissionTrim(Math.round(val / 0.04) * 0.04);
                 }}
                 disabled={!emissionFile}
-                className="w-16 h-6 px-1 text-center bg-transparent focus:outline-none focus:ring-1 focus:ring-red-500 rounded disabled:opacity-40"
+                className="w-16 h-6 px-1 text-center bg-transparent focus:outline-none focus:ring-1 focus:ring-red-500 rounded disabled:opacity-100 disabled:text-white"
               />
               <button 
                 onClick={() => setEmissionTrim(t => t + 0.04)}
-                className="w-5 h-5 flex items-center justify-center bg-gray-100 rounded hover:bg-gray-200 text-gray-700"
+                className="w-5 h-5 flex items-center justify-center bg-gray-100 dark:bg-[#1A1A1A] rounded hover:bg-gray-200 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
                 disabled={!emissionFile}
               >+</button>
               <span className="ml-1">s</span>
@@ -3543,16 +3701,16 @@ export const SyncDualPlayer: React.FC = () => {
       </div>
 
       {/* Synchronized Playback Control Dashboard */}
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4">
+      <div className="bg-[#3E3E3E] dark:bg-[#350F9C] rounded-2xl shadow-lg shadow-[#3E3E3E]/20 dark:shadow-[#350F9C]/20 border border-[#3E3E3E] dark:border-[#350F9C] p-4">
         <div className="flex flex-row items-center justify-between gap-4 overflow-x-auto">
           
           {/* Timeline and Seek Bar */}
           <div className="flex-grow flex items-center space-x-4">
             <div className="flex flex-col items-end w-20 flex-shrink-0">
-              <span className="text-sm text-gray-700 font-mono font-medium">
+              <span className="text-sm text-white font-mono font-medium">
                 {formatTimecode(currentTime)}
               </span>
-              <span className="text-[10px] text-gray-400 font-mono">
+              <span className="text-[10px] text-white/70 font-mono">
                 {formatTime(currentTime)}
               </span>
             </div>
@@ -3565,7 +3723,7 @@ export const SyncDualPlayer: React.FC = () => {
                 value={currentTime}
                 onChange={(e) => handleSeek(parseFloat(e.target.value))}
                 disabled={!acceptanceFile && !emissionFile}
-                className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600 disabled:opacity-40 z-20"
+                className="w-full h-2 bg-black/20 rounded-lg appearance-none cursor-pointer accent-white disabled:opacity-100 disabled:text-white z-20"
               />
               {/* Diff Markers */}
               {duration > 0 && diffTimestamps.map(t => (
@@ -3577,10 +3735,10 @@ export const SyncDualPlayer: React.FC = () => {
               ))}
             </div>
             <div className="flex flex-col items-start w-20 flex-shrink-0">
-              <span className="text-sm text-gray-700 font-mono font-medium">
+              <span className="text-sm text-white font-mono font-medium">
                 {formatTimecode(duration)}
               </span>
-              <span className="text-[10px] text-gray-400 font-mono">
+              <span className="text-[10px] text-white/70 font-mono">
                 {formatTime(duration)}
               </span>
             </div>
@@ -3592,7 +3750,7 @@ export const SyncDualPlayer: React.FC = () => {
             <button
               onClick={() => handleStep(-1)}
               disabled={!acceptanceFile && !emissionFile}
-              className="w-10 h-10 flex items-center justify-center bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-xl transition-colors disabled:opacity-40 disabled:hover:bg-gray-100"
+              className="w-10 h-10 flex items-center justify-center bg-[#4960E6] hover:bg-white hover:text-[#4960E6] text-white disabled:hover:bg-[#4960E6] disabled:hover:text-white rounded-xl transition-colors disabled:opacity-100 disabled:text-white "
               title="-1 Klatka"
             >
               <ChevronLeftIcon className="w-5 h-5" />
@@ -3605,9 +3763,9 @@ export const SyncDualPlayer: React.FC = () => {
               className={`w-12 h-12 flex items-center justify-center text-white rounded-full transition-all shadow-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 ${
                 !acceptanceFile && !emissionFile
                   ? "bg-gray-300 shadow-none cursor-not-allowed"
-                  : "bg-blue-600 hover:bg-blue-700 shadow-blue-600/10"
+                  : "bg-white hover:bg-gray-100 text-[#350F9C] shadow-black/10"
               }`}
-              title="Odtwarzaj / Pauza"
+              title={t("playPause")}
             >
               {isPlaying ? <PauseIcon className="w-5 h-5" /> : <PlayIcon className="w-5 h-5 ml-0.5" />}
             </button>
@@ -3616,7 +3774,7 @@ export const SyncDualPlayer: React.FC = () => {
             <button
               onClick={() => handleStep(1)}
               disabled={!acceptanceFile && !emissionFile}
-              className="w-10 h-10 flex items-center justify-center bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-xl transition-colors disabled:opacity-40 disabled:hover:bg-gray-100"
+              className="w-10 h-10 flex items-center justify-center bg-[#4960E6] hover:bg-white hover:text-[#4960E6] text-white disabled:hover:bg-[#4960E6] disabled:hover:text-white rounded-xl transition-colors disabled:opacity-100 disabled:text-white "
               title="+1 Klatka"
             >
               <ChevronRightIcon className="w-5 h-5" />
@@ -3626,14 +3784,14 @@ export const SyncDualPlayer: React.FC = () => {
             <button
               onClick={handleStop}
               disabled={!acceptanceFile && !emissionFile}
-              className="w-10 h-10 flex items-center justify-center bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-xl transition-colors disabled:opacity-40 disabled:hover:bg-gray-100"
+              className="w-10 h-10 flex items-center justify-center bg-[#4960E6] hover:bg-white hover:text-[#4960E6] text-white disabled:hover:bg-[#4960E6] disabled:hover:text-white rounded-xl transition-colors disabled:opacity-100 disabled:text-white "
               title="Zatrzymaj"
             >
               <StopIcon className="w-5 h-5" />
             </button>
 
             {/* Eyedropper Toggle */}
-            <div className="w-px h-6 bg-gray-300 mx-2"></div>
+            <div className="w-px h-6 bg-white/20 mx-2"></div>
             <button
               onClick={() => {
                 setIsEyedropperActive(!isEyedropperActive);
@@ -3642,12 +3800,12 @@ export const SyncDualPlayer: React.FC = () => {
                 }
               }}
               disabled={!acceptanceFile && !emissionFile}
-              className={`w-10 h-10 flex items-center justify-center rounded-xl transition-colors disabled:opacity-40 disabled:hover:bg-transparent ${
+              className={`w-10 h-10 flex items-center justify-center rounded-xl transition-colors disabled:opacity-100 disabled:text-white  ${
                 isEyedropperActive 
-                  ? "bg-indigo-100 text-indigo-700 hover:bg-indigo-200" 
-                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                  ? "bg-white text-[#4960E6]" 
+                  : "bg-[#4960E6] hover:bg-white hover:text-[#4960E6] text-white disabled:hover:bg-[#4960E6] disabled:hover:text-white"
               }`}
-              title={isEyedropperActive ? "Wyłącz próbnik koloru (Kroplomierz)" : "Włącz próbnik koloru (Kroplomierz, aktywny na pauzie)"}
+              title={isEyedropperActive ? t("turnOffEyedropper") : t("turnOnEyedropper")}
             >
               <EyeDropperIcon className="w-5 h-5" />
             </button>
@@ -3663,12 +3821,12 @@ export const SyncDualPlayer: React.FC = () => {
                   }
                 }}
                 disabled={!acceptanceFile && !emissionFile}
-                className={`w-10 h-10 flex items-center justify-center rounded-xl transition-colors disabled:opacity-40 disabled:hover:bg-transparent ${
+                className={`w-10 h-10 flex items-center justify-center rounded-xl transition-colors disabled:opacity-100 disabled:text-white  ${
                   isRulerActive 
-                    ? "bg-blue-100 text-blue-700 hover:bg-blue-200" 
-                    : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                    ? "bg-white text-[#4960E6]" 
+                    : "bg-[#4960E6] hover:bg-white hover:text-[#4960E6] text-white disabled:hover:bg-[#4960E6] disabled:hover:text-white"
                 }`}
-                title={isRulerActive ? "Wyłącz miarkę (Linijka)" : "Włącz miarkę pikseli (Linijka, aktywna na pauzie)"}
+                title={isRulerActive ? t("turnOffRuler") : t("turnOnRuler")}
               >
                 <RulerIcon className="w-5 h-5" />
               </button>
@@ -3687,10 +3845,10 @@ export const SyncDualPlayer: React.FC = () => {
             <button
               onClick={() => setIsOcrActive(!isOcrActive)}
               disabled={!acceptanceFile && !emissionFile}
-              className={`w-10 h-10 flex items-center justify-center rounded-xl transition-colors disabled:opacity-40 disabled:hover:bg-transparent ${
+              className={`w-10 h-10 flex items-center justify-center rounded-xl transition-colors disabled:opacity-100 disabled:text-white  ${
                 isOcrActive 
-                  ? "bg-purple-100 text-purple-700 hover:bg-purple-200" 
-                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                  ? "bg-white text-[#4960E6]" 
+                  : "bg-[#4960E6] hover:bg-white hover:text-[#4960E6] text-white disabled:hover:bg-[#4960E6] disabled:hover:text-white"
               }`}
               title={isOcrActive ? "Wyłącz porównanie tekstu (OCR)" : "Włącz porównanie tekstu (OCR)"}
             >
@@ -3698,14 +3856,14 @@ export const SyncDualPlayer: React.FC = () => {
             </button>
 
             {/* Report Builder Toggle */}
-            <div className="w-px h-6 bg-gray-300 mx-2"></div>
+            <div className="w-px h-6 bg-white/20 mx-2"></div>
             <button
               onClick={() => handleCaptureReport()}
               disabled={capturingReport || (!acceptanceFile && !emissionFile)}
-              className={`w-10 h-10 flex items-center justify-center rounded-xl transition-colors disabled:opacity-40 disabled:hover:bg-transparent ${
+              className={`w-10 h-10 flex items-center justify-center rounded-xl transition-colors disabled:opacity-100 disabled:text-white  ${
                 capturingReport 
-                  ? "bg-amber-100 text-amber-700 animate-pulse" 
-                  : "bg-amber-50 text-amber-600 hover:bg-amber-100 border border-amber-200/50"
+                  ? "bg-white text-amber-600 animate-pulse" 
+                  : "bg-[#4960E6] hover:bg-white hover:text-[#4960E6] text-white disabled:hover:bg-[#4960E6] disabled:hover:text-white border border-transparent"
               }`}
               title="Add current view to PDF Report"
             >
@@ -3713,7 +3871,7 @@ export const SyncDualPlayer: React.FC = () => {
             </button>
             <button
               onClick={() => setIsReportModalOpen(true)}
-              className="px-3 h-10 flex items-center gap-2 rounded-xl transition-colors bg-white hover:bg-gray-50 border border-gray-200 text-gray-700 text-sm font-semibold"
+              className="px-3 h-10 flex items-center gap-2 rounded-xl transition-colors bg-[#4960E6] hover:bg-[#4960E6]/80 border border-transparent text-white text-sm font-semibold"
             >
               Raport
               {reportItems.length > 0 && (
@@ -3730,7 +3888,7 @@ export const SyncDualPlayer: React.FC = () => {
               <button
                 onClick={() => analyzeCurrentFrame()}
                 title="Analizuj bieżącą klatkę"
-                className="w-10 h-10 flex items-center justify-center bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-xl transition-colors"
+                className="w-10 h-10 flex items-center justify-center bg-[#4960E6] hover:bg-white hover:text-[#4960E6] text-white disabled:hover:bg-[#4960E6] disabled:hover:text-white rounded-xl transition-colors"
               >
                 <EyeIcon className="w-5 h-5" />
               </button>
@@ -3740,32 +3898,32 @@ export const SyncDualPlayer: React.FC = () => {
             <button
               onClick={handleRefresh}
               disabled={!acceptanceFile && !emissionFile}
-              className="w-10 h-10 flex items-center justify-center bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-xl transition-colors disabled:opacity-40 disabled:hover:bg-gray-100"
+              className="w-10 h-10 flex items-center justify-center bg-[#4960E6] hover:bg-white hover:text-[#4960E6] text-white disabled:hover:bg-[#4960E6] disabled:hover:text-white rounded-xl transition-colors disabled:opacity-100 disabled:text-white "
               title="Odśwież / Przeładuj"
             >
               <ArrowPathIcon className="w-5 h-5" />
             </button>
 
-            <div className="h-6 w-px bg-gray-200 mx-1"></div>
+            <div className="h-6 w-px bg-gray-200 dark:bg-gray-800 mx-1"></div>
 
             {/* Clear Button */}
             <button
               onClick={handleClear}
               disabled={!acceptanceFile && !emissionFile}
-              className="w-10 h-10 flex items-center justify-center bg-gray-100 hover:bg-red-50 hover:text-red-600 text-gray-600 rounded-xl transition-colors disabled:opacity-40 disabled:hover:bg-gray-100"
+              className="w-10 h-10 flex items-center justify-center bg-[#4960E6] hover:bg-white hover:text-[#4960E6] text-white disabled:hover:bg-[#4960E6] disabled:hover:text-white rounded-xl transition-colors disabled:opacity-100 disabled:text-white "
               title="Wyczyść odtwarzacze"
             >
               <XMarkIcon className="w-5 h-5" />
             </button>
 
-            <div className="h-6 w-px bg-gray-200 mx-1"></div>
+            <div className="h-6 w-px bg-gray-200 dark:bg-gray-800 mx-1"></div>
 
             {/* Global Mute Button */}
             <button
               onClick={() => setIsMuted(!isMuted)}
               disabled={!acceptanceFile && !emissionFile}
-              className={`w-10 h-10 flex items-center justify-center rounded-xl transition-colors disabled:opacity-40 ${
-                isMuted ? "bg-red-50 text-red-600" : "bg-gray-100 hover:bg-gray-200 text-gray-600"
+              className={`w-10 h-10 flex items-center justify-center rounded-xl transition-colors disabled:opacity-100 disabled:text-white ${
+                isMuted ? "bg-red-50 text-red-600" : "bg-[#4960E6] hover:bg-white hover:text-[#4960E6] text-white disabled:hover:bg-[#4960E6] disabled:hover:text-white"
               }`}
               title="Wycisz wszystko"
             >
@@ -3778,7 +3936,7 @@ export const SyncDualPlayer: React.FC = () => {
           <div className="min-w-0 overflow-hidden">
       {/* OCR / Compare Copy Panel */}
       {isOcrActive && (
-        <div id="ocr-panel-container" className={`bg-white rounded-2xl shadow-sm border border-purple-200 flex flex-col${isSinglePlayerMode && isHorizontalLayout ? " max-h-[80vh] overflow-hidden" : " mt-8 overflow-hidden"}`}>
+        <div id="ocr-panel-container" className={`bg-white dark:bg-[#121212] rounded-2xl shadow-sm border border-[#350F9C]/30 flex flex-col${isSinglePlayerMode && isHorizontalLayout ? " max-h-[80vh] overflow-hidden" : " mt-8 overflow-hidden"}`}>
           <div className="px-4 py-3 border-b border-purple-100 bg-purple-50/50 flex flex-wrap items-center gap-x-3 gap-y-2">
             <h3 className="font-semibold text-purple-900 flex items-center gap-2 mr-2">
               <DocumentTextIcon className="w-5 h-5" /> Compare Copy (OCR)
@@ -3801,7 +3959,7 @@ export const SyncDualPlayer: React.FC = () => {
                   type="checkbox" 
                   checked={ocrInvertColors}
                   onChange={(e) => setOcrInvertColors(e.target.checked)}
-                  className="rounded text-purple-600 focus:ring-purple-500 w-3 h-3 cursor-pointer"
+                  className="rounded text-[#350F9C] focus:ring-purple-500 w-3 h-3 cursor-pointer"
                 />
                 Invert
               </label>
@@ -3811,7 +3969,7 @@ export const SyncDualPlayer: React.FC = () => {
                 <select 
                   value={ocrLanguage}
                   onChange={(e) => setOcrLanguage(e.target.value)}
-                  className="text-xs border-purple-200 rounded px-2 py-1 bg-white focus:ring-purple-500 text-purple-900 cursor-pointer"
+                  className="text-xs border-[#350F9C]/30 rounded px-2 py-1 bg-white dark:bg-[#121212] focus:ring-purple-500 text-purple-900 cursor-pointer"
                 >
                   <option value="eng+pol">Auto (EN + PL)</option>
                   {Object.entries(LANGUAGE_TO_TESSERACT)
@@ -3828,7 +3986,7 @@ export const SyncDualPlayer: React.FC = () => {
                     value={ocrCustomLanguage}
                     onChange={(e) => setOcrCustomLanguage(e.target.value.toLowerCase().replace(/[^a-z]/g, ''))}
                     placeholder="e.g. ell"
-                    className="w-16 text-xs border-purple-200 rounded px-2 py-1 focus:ring-purple-500 text-purple-900"
+                    className="w-16 text-xs border-[#350F9C]/30 rounded px-2 py-1 focus:ring-purple-500 text-purple-900"
                     maxLength={3}
                     title="Enter 3-letter ISO 639-2 language code"
                   />
@@ -3873,10 +4031,10 @@ export const SyncDualPlayer: React.FC = () => {
             {/* Brief Input */}
             <div className="flex flex-col gap-2">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                <label className="text-sm font-semibold text-gray-700">Brief text</label>
+                <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Brief text</label>
                 {copydeckData && copydeckData.languages && copydeckData.languages.length > 0 && (
                   <select
-                    className="text-xs border-indigo-200 rounded px-2 py-1 bg-indigo-50 focus:ring-indigo-500 text-indigo-900 cursor-pointer"
+                    className="text-xs border-indigo-200 rounded px-2 py-1 bg-[#350F9C]/10 focus:ring-indigo-500 text-indigo-900 cursor-pointer"
                     value={selectedCopydeckLanguage}
                     onChange={(e) => {
                       const lang = e.target.value;
@@ -3911,7 +4069,7 @@ export const SyncDualPlayer: React.FC = () => {
                 value={ocrBriefText}
                 onChange={(e) => setOcrBriefText(e.target.value)}
                 placeholder="Paste brief text here..."
-                className={`w-full p-3 text-sm border border-gray-300 rounded-lg focus:ring-purple-500 focus:border-purple-500 resize-none font-sans ${isSinglePlayerMode && isHorizontalLayout ? 'h-20' : 'h-32'}`}
+                className={`w-full p-3 text-sm border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-purple-500 focus:border-purple-500 resize-none font-sans ${isSinglePlayerMode && isHorizontalLayout ? 'h-20' : 'h-32'}`}
               />
             </div>
             
@@ -3922,7 +4080,7 @@ export const SyncDualPlayer: React.FC = () => {
                 {ocrBoxAcceptance ? (
                   <span className="text-[10px] bg-green-100 text-green-800 px-2 py-0.5 rounded font-mono">ZAZNACZONO OBSZAR</span>
                 ) : (
-                  <span className="text-[10px] text-gray-400 font-mono">ZAZNACZ OBSZAR MYSZKĄ</span>
+                  <span className="text-[10px] text-white/70 font-mono">ZAZNACZ OBSZAR MYSZKĄ</span>
                 )}
               </div>
               
@@ -3930,7 +4088,7 @@ export const SyncDualPlayer: React.FC = () => {
                 value={ocrTextAcceptance}
                 readOnly
                 placeholder="Text extracted from Acceptance video will appear here..."
-                className={`w-full p-3 text-sm border border-gray-300 bg-gray-50 rounded-lg focus:outline-none resize-none font-sans ${isSinglePlayerMode && isHorizontalLayout ? 'h-20' : 'h-32'}`}
+                className={`w-full p-3 text-sm border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-[#191919] rounded-lg focus:outline-none resize-none font-sans ${isSinglePlayerMode && isHorizontalLayout ? 'h-20' : 'h-32'}`}
               />
             </div>
             
@@ -3941,7 +4099,7 @@ export const SyncDualPlayer: React.FC = () => {
                 {ocrBoxEmission ? (
                   <span className="text-[10px] bg-red-100 text-red-800 px-2 py-0.5 rounded font-mono">ZAZNACZONO OBSZAR</span>
                 ) : (
-                  <span className="text-[10px] text-gray-400 font-mono">ZAZNACZ OBSZAR MYSZKĄ</span>
+                  <span className="text-[10px] text-white/70 font-mono">ZAZNACZ OBSZAR MYSZKĄ</span>
                 )}
               </div>
               
@@ -3949,7 +4107,7 @@ export const SyncDualPlayer: React.FC = () => {
                 value={ocrTextEmission}
                 readOnly
                 placeholder="Text extracted from Emission video will appear here..."
-                className={`w-full p-3 text-sm border border-gray-300 bg-gray-50 rounded-lg focus:outline-none resize-none font-sans ${isSinglePlayerMode && isHorizontalLayout ? 'h-20' : 'h-32'}`}
+                className={`w-full p-3 text-sm border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-[#191919] rounded-lg focus:outline-none resize-none font-sans ${isSinglePlayerMode && isHorizontalLayout ? 'h-20' : 'h-32'}`}
               />
             </div>
           </div>
@@ -3957,7 +4115,7 @@ export const SyncDualPlayer: React.FC = () => {
           {/* Selectable Copydeck Lines - Full Width */}
           {availableCopydeckLines.length > 0 && (
             <div className="px-6 pb-2 -mt-2">
-              <span className="text-[10px] uppercase font-bold text-gray-500 mb-2 block">Wybierz wiersz z pliku Excel (Copydeck):</span>
+              <span className="text-[10px] uppercase font-bold text-gray-500 dark:text-gray-400 mb-2 block">{t("chooseRowFromExcel")}</span>
               <div className="flex gap-3 overflow-x-auto pb-4 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent">
                 {availableCopydeckLines.map((line, idx) => (
                   <button
@@ -3965,8 +4123,8 @@ export const SyncDualPlayer: React.FC = () => {
                     onClick={() => setOcrBriefText(line)}
                     className={`flex-shrink-0 w-52 text-left text-sm px-4 py-3 rounded-xl border transition-all ${
                       ocrBriefText === line
-                        ? "bg-indigo-50 border-indigo-400 text-indigo-900 shadow-md ring-2 ring-indigo-200/50"
-                        : "bg-white border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-gray-300 hover:shadow-sm"
+                        ? "bg-[#350F9C]/10 border-indigo-400 text-indigo-900 shadow-md ring-2 ring-indigo-200/50"
+                        : "bg-white dark:bg-[#121212] border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:bg-[#191919] hover:border-gray-300 dark:border-gray-700 hover:shadow-sm"
                     }`}
                     title={line}
                   >
@@ -3977,12 +4135,12 @@ export const SyncDualPlayer: React.FC = () => {
             </div>
           )}
 
-          <div className="px-6 pb-6 pt-2 flex flex-col gap-6 border-t border-gray-100 mt-2">
+          <div className="px-6 pb-6 pt-2 flex flex-col gap-6 border-t border-gray-100 dark:border-gray-800 mt-2">
             <div className="flex items-center justify-between pt-4">
               <button
                 onClick={handleRunOcr}
                 disabled={isOcrProcessing || (!ocrBoxAcceptance && !ocrBoxEmission)}
-                className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-6 py-2 rounded-xl font-semibold transition-colors disabled:opacity-50"
+                className="flex items-center gap-2 bg-[#350F9C] hover:bg-purple-700 text-white px-6 py-2 rounded-xl font-semibold transition-colors disabled:opacity-100 disabled:text-white"
               >
                 {isOcrProcessing ? (
                   <ArrowPathIcon className="w-5 h-5 animate-spin" />
@@ -3995,18 +4153,18 @@ export const SyncDualPlayer: React.FC = () => {
             
             {/* DIFF RESULTS */}
             {(ocrTextAcceptance || ocrTextEmission) && (
-              <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 flex flex-col gap-4">
-                <h4 className="text-sm font-bold text-gray-700 uppercase tracking-wider">Wynik Porównania (Różnice)</h4>
+              <div className="bg-gray-50 dark:bg-[#191919] p-4 rounded-xl border border-gray-200 dark:border-gray-800 flex flex-col gap-4">
+                <h4 className="text-sm font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">{t("comparisonResult")}</h4>
                 
-                <div className="flex items-center gap-2 text-xs text-gray-500 bg-white border rounded px-3 py-1.5 w-max">
+                <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 bg-white dark:bg-[#121212] border rounded px-3 py-1.5 w-max">
                   <span className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-green-300 block"></span> Dodane</span>
                   <span className="flex items-center gap-1 ml-2"><span className="w-2 h-2 rounded bg-red-300 block"></span> Usunięte</span>
                 </div>
                 
                 {ocrBriefText && ocrTextAcceptance && (
                   <div className="flex flex-col gap-1">
-                    <span className="text-xs font-semibold text-gray-500">Brief <span className="mx-1 text-[10px] text-gray-300">vs</span> Acceptance</span>
-                    <div className="p-3 bg-white border border-gray-200 rounded font-mono text-sm leading-relaxed whitespace-pre-wrap break-words">
+                    <span className="text-xs font-semibold text-gray-500 dark:text-gray-400">Brief <span className="mx-1 text-[10px] text-gray-300">vs</span> Acceptance</span>
+                    <div className="p-3 bg-white dark:bg-[#121212] border border-gray-200 dark:border-gray-800 rounded font-mono text-sm leading-relaxed whitespace-pre-wrap break-words">
                       {diffChars(normalizeTextForDiff(ocrBriefText), normalizeTextForDiff(ocrTextAcceptance)).map((part, i) => (
                         <span key={i} className={part.added ? "bg-green-200 text-green-900 px-0.5 rounded" : part.removed ? "bg-red-200 text-red-900 line-through px-0.5 rounded" : ""}>
                           {part.value}
@@ -4018,8 +4176,8 @@ export const SyncDualPlayer: React.FC = () => {
                 
                 {ocrBriefText && ocrTextEmission && (
                   <div className="flex flex-col gap-1 mt-2">
-                    <span className="text-xs font-semibold text-gray-500">Brief <span className="mx-1 text-[10px] text-gray-300">vs</span> Emission</span>
-                    <div className="p-3 bg-white border border-gray-200 rounded font-mono text-sm leading-relaxed whitespace-pre-wrap break-words">
+                    <span className="text-xs font-semibold text-gray-500 dark:text-gray-400">Brief <span className="mx-1 text-[10px] text-gray-300">vs</span> Emission</span>
+                    <div className="p-3 bg-white dark:bg-[#121212] border border-gray-200 dark:border-gray-800 rounded font-mono text-sm leading-relaxed whitespace-pre-wrap break-words">
                       {diffChars(normalizeTextForDiff(ocrBriefText), normalizeTextForDiff(ocrTextEmission)).map((part, i) => (
                         <span key={i} className={part.added ? "bg-green-200 text-green-900 px-0.5 rounded" : part.removed ? "bg-red-200 text-red-900 line-through px-0.5 rounded" : ""}>
                           {part.value}
@@ -4031,8 +4189,8 @@ export const SyncDualPlayer: React.FC = () => {
                 
                 {ocrTextAcceptance && ocrTextEmission && !ocrBriefText && (
                   <div className="flex flex-col gap-1 mt-2">
-                    <span className="text-xs font-semibold text-gray-500">Acceptance <span className="mx-1 text-[10px] text-gray-300">vs</span> Emission</span>
-                    <div className="p-3 bg-white border border-gray-200 rounded font-mono text-sm leading-relaxed whitespace-pre-wrap break-words">
+                    <span className="text-xs font-semibold text-gray-500 dark:text-gray-400">Acceptance <span className="mx-1 text-[10px] text-gray-300">vs</span> Emission</span>
+                    <div className="p-3 bg-white dark:bg-[#121212] border border-gray-200 dark:border-gray-800 rounded font-mono text-sm leading-relaxed whitespace-pre-wrap break-words">
                       {diffChars(normalizeTextForDiff(ocrTextAcceptance), normalizeTextForDiff(ocrTextEmission)).map((part, i) => (
                         <span key={i} className={part.added ? "bg-green-200 text-green-900 px-0.5 rounded" : part.removed ? "bg-red-200 text-red-900 line-through px-0.5 rounded" : ""}>
                           {part.value}
@@ -4055,23 +4213,23 @@ export const SyncDualPlayer: React.FC = () => {
       {/* Pending Report Modal (Add Comment) */}
       {pendingReportItem && (
         <div className="fixed inset-0 z-50 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col">
-            <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
-              <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+          <div className="bg-white dark:bg-[#121212] rounded-2xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col">
+            <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center bg-gray-50 dark:bg-[#191919]/50">
+              <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2">
                 <CameraIcon className="w-5 h-5 text-amber-500" />
                 Add shot to Report
               </h2>
               <button 
                 onClick={() => setPendingReportItem(null)}
-                className="text-gray-400 hover:text-gray-600 transition-colors"
+                className="text-gray-400 hover:text-gray-600 dark:text-gray-400 transition-colors"
               >
                 <XMarkIcon className="w-5 h-5" />
               </button>
             </div>
             
             <div className="p-6">
-              <p className="text-sm text-gray-500 mb-4">
-                Screenshot captured at video time: <span className="font-mono font-bold text-gray-700">{pendingReportItem.timecode.toFixed(3)}s</span>.
+              <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+                Screenshot captured at video time: <span className="font-mono font-bold text-gray-700 dark:text-gray-300">{pendingReportItem.timecode.toFixed(3)}s</span>.
                 Możesz dodać krótki komentarz dla innych testerów lub programistów, that will appear in the PDF file.
               </p>
               
@@ -4079,14 +4237,14 @@ export const SyncDualPlayer: React.FC = () => {
                 value={pendingReportItem.comment}
                 onChange={(e) => setPendingReportItem({ ...pendingReportItem, comment: e.target.value })}
                 placeholder="Np. Tekst legalu jest przesunięty o 5 pikseli w prawo..."
-                className="w-full h-24 p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none resize-none text-sm text-gray-700 bg-gray-50"
+                className="w-full h-24 p-3 border border-gray-200 dark:border-gray-800 rounded-xl focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none resize-none text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-[#191919]"
                 autoFocus
               ></textarea>
               
               <div className="flex gap-3 mt-6 justify-end">
                 <button
                   onClick={() => setPendingReportItem(null)}
-                  className="px-4 py-2 rounded-xl text-sm font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors"
+                  className="px-4 py-2 rounded-xl text-sm font-semibold text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-[#1A1A1A] hover:bg-gray-200 dark:bg-gray-800 transition-colors"
                 >
                   Cancel
                 </button>
@@ -4108,43 +4266,43 @@ export const SyncDualPlayer: React.FC = () => {
       {/* Report Cart Modal */}
       {isReportModalOpen && (
         <div className="fixed inset-0 z-50 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col">
-            <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
-              <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+          <div className="bg-white dark:bg-[#121212] rounded-2xl shadow-xl w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col">
+            <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center bg-gray-50 dark:bg-[#191919]/50">
+              <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2">
                 <DocumentTextIcon className="w-5 h-5 text-amber-500" />
                 PDF Report Creator ({reportItems.length})
               </h2>
               <button 
                 onClick={() => setIsReportModalOpen(false)}
-                className="text-gray-400 hover:text-gray-600 transition-colors"
+                className="text-gray-400 hover:text-gray-600 dark:text-gray-400 transition-colors"
               >
                 <XMarkIcon className="w-5 h-5" />
               </button>
             </div>
             
-            <div className="p-6 overflow-y-auto flex-1 bg-gray-50/30">
+            <div className="p-6 overflow-y-auto flex-1 bg-gray-50 dark:bg-[#191919]/30">
               {reportItems.length === 0 ? (
                 <div className="text-center py-12">
                   <CameraIcon className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                  <p className="text-gray-500 font-medium">No screenshots added to report.</p>
+                  <p className="text-gray-500 dark:text-gray-400 font-medium">No screenshots added to report.</p>
                   <p className="text-sm text-gray-400 mt-1">Użyj ikony aparatu na pasku narzędzi podczas pracy.</p>
                 </div>
               ) : (
                 <div className="space-y-4">
                   {reportItems.map((item, index) => (
-                    <div key={item.id} className="bg-white border border-gray-200 rounded-xl p-4 flex gap-4 shadow-sm relative group">
+                    <div key={item.id} className="bg-white dark:bg-[#121212] border border-gray-200 dark:border-gray-800 rounded-xl p-4 flex gap-4 shadow-sm relative group">
                       <div className="flex-shrink-0 w-8 h-8 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center font-bold text-sm">
                         {index + 1}
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
-                          <span className="font-semibold text-gray-800 text-sm">Zrzut z {item.timecode.toFixed(3)}s</span>
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-gray-100 text-gray-600 uppercase">
+                          <span className="font-semibold text-gray-800 dark:text-gray-200 text-sm">Zrzut z {item.timecode.toFixed(3)}s</span>
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-gray-100 dark:bg-[#1A1A1A] text-gray-600 dark:text-gray-400 uppercase">
                             {item.type}
                           </span>
                         </div>
                         {item.comment && (
-                          <p className="text-sm text-gray-600 italic break-words">{item.comment}</p>
+                          <p className="text-sm text-gray-600 dark:text-gray-400 italic break-words">{item.comment}</p>
                         )}
                       </div>
                       <button
@@ -4160,11 +4318,11 @@ export const SyncDualPlayer: React.FC = () => {
               )}
             </div>
             
-            <div className="px-6 py-4 border-t border-gray-100 bg-white flex justify-between items-center">
+            <div className="px-6 py-4 border-t border-gray-100 dark:border-gray-800 bg-white dark:bg-[#121212] flex justify-between items-center">
               <button
                 onClick={() => setReportItems([])}
                 disabled={reportItems.length === 0}
-                className="text-sm font-medium text-red-500 hover:text-red-600 disabled:opacity-50 disabled:hover:text-red-500"
+                className="text-sm font-medium text-red-500 hover:text-red-600 disabled:opacity-100 disabled:text-white disabled:hover:text-red-500"
               >
                 Clear report
               </button>
@@ -4175,7 +4333,7 @@ export const SyncDualPlayer: React.FC = () => {
                   setIsReportModalOpen(false);
                 }}
                 disabled={reportItems.length === 0}
-                className="px-6 py-2 rounded-xl text-sm font-semibold text-white bg-green-500 hover:bg-green-600 shadow-sm shadow-green-500/20 transition-all disabled:opacity-50 disabled:hover:bg-green-500"
+                className="px-6 py-2 rounded-xl text-sm font-semibold text-white bg-green-500 hover:bg-green-600 shadow-sm shadow-green-500/20 transition-all disabled:opacity-100 disabled:text-white disabled:hover:bg-green-500"
               >
                 Generate PDF Report
               </button>
