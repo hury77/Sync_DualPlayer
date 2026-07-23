@@ -2710,7 +2710,7 @@ export const SyncDualPlayer: React.FC = () => {
               <polygon points={`${start.x},${start.y} ${p1.x},${p1.y} ${p2.x},${p2.y}`} fill={line.color} className="pointer-events-none" />
               <polygon points={`${end.x},${end.y} ${p3.x},${p3.y} ${p4.x},${p4.y}`} fill={line.color} className="pointer-events-none" />
               {dist > 0 && (
-                <text x={midX} y={midY - 8} fill={line.color} fontSize="12" fontWeight="bold" textAnchor="middle" style={{ textShadow: "0px 1px 3px rgba(0,0,0,0.8), 0px 0px 2px rgba(0,0,0,1)" }}>
+                <text x={midX} y={midY - 8} fill={line.color} fontSize="12" fontWeight="bold" textAnchor="middle">
                   {dist} px
                 </text>
               )}
@@ -2858,23 +2858,32 @@ export const SyncDualPlayer: React.FC = () => {
     <div className={`${isSinglePlayerMode && !isHorizontalLayout ? 'max-w-7xl mx-auto' : 'w-full'} px-4 py-4 pb-4 transition-all duration-500`}>
 
       {/* Title Header */}
-      <div className="mb-6 flex justify-between items-start gap-5">
-        <div className="flex items-start gap-5">
-          <div className="flex-shrink-0 w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-600 via-purple-600 to-fuchsia-500 shadow-lg flex items-center justify-center transform hover:scale-105 transition-all duration-300 ring-4 ring-white">
-            <svg className="w-7 h-7 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-              <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-            </svg>
-          </div>
-          <div className="flex flex-col justify-center pt-0.5">
-            <h2 className="text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-gray-900 to-gray-600 dark:from-gray-100 dark:to-gray-400 mb-1 tracking-tight flex items-center">
-              VITO <span className="text-gray-400 dark:text-gray-300 font-medium text-2xl tracking-normal mx-3">Video Inspector Tool Observer</span><span className="text-xs text-[#350F9C] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-[#350F9C]/10 border border-[#350F9C]/30 shadow-sm align-middle mt-1">v2.3</span>
+      <div className="mb-10 relative flex justify-center items-start w-full min-h-[80px]">
+        {/* Center section: Logo + Title */}
+        <div className="flex flex-col items-center gap-2">
+          <div className="flex items-center gap-6">
+            <div className="flex-shrink-0 w-[72px] h-[72px] rounded-[20px] shadow-2xl flex items-center justify-center transform hover:scale-105 hover:-translate-y-1 transition-all duration-300 relative group cursor-default">
+              <div className="absolute inset-0 bg-indigo-500 rounded-[20px] blur-xl opacity-20 group-hover:opacity-40 transition-opacity duration-300"></div>
+              <img src="/icon.png" alt="VITO Logo" className="w-full h-full object-contain relative z-10 drop-shadow-sm rounded-[20px]" />
+            </div>
+            <h2 className="text-[72px] leading-none font-black text-transparent bg-clip-text bg-gradient-to-b from-gray-900 to-gray-600 dark:from-white dark:to-gray-400 tracking-tight pb-1" style={{ fontFamily: "'Outfit', 'Inter', sans-serif" }}>
+              VITO
             </h2>
+          </div>
+          <div className="flex flex-col items-center text-center">
+            <div className="flex items-center justify-center mt-1">
+              <span className="text-gray-500 dark:text-gray-400 font-medium text-[13px] tracking-[0.25em] uppercase" style={{ fontFamily: "'Inter', sans-serif" }}>
+                Video Inspector Tool Observer
+              </span>
+              <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-widest px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-800/50 shadow-sm ml-3">
+                v2.3
+              </span>
+            </div>
           </div>
         </div>
 
         {/* ── Language & Theme Switchers ── */}
-        <div className="flex items-center gap-2 mt-2">
+        <div className="absolute right-0 top-0 flex items-center gap-2">
           {/* Theme Toggle */}
           <button
             onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
@@ -3802,7 +3811,11 @@ export const SyncDualPlayer: React.FC = () => {
             <button
               onClick={() => {
                 setIsEyedropperActive(!isEyedropperActive);
-                if (isEyedropperActive) {
+                if (!isEyedropperActive) {
+                  setIsRulerActive(false);
+                  setRulerLines([]);
+                  setActiveRulerLine(null);
+                } else {
                   setEyedropperDrops([]);
                 }
               }}
@@ -3822,7 +3835,10 @@ export const SyncDualPlayer: React.FC = () => {
               <button
                 onClick={() => {
                   setIsRulerActive(!isRulerActive);
-                  if (isRulerActive) {
+                  if (!isRulerActive) {
+                    setIsEyedropperActive(false);
+                    setEyedropperDrops([]);
+                  } else {
                     setRulerLines([]);
                     setActiveRulerLine(null);
                   }

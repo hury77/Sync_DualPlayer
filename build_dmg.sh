@@ -10,6 +10,11 @@ echo "🚀 Budowanie najnowszej wersji aplikacji (v${APP_VERSION})..."
 # 1. Zbudowanie frontendu
 echo "📦 Kompilacja Frontendu..."
 cd frontend
+# Source NVM if available to ensure npm is found
+if [ -f "$HOME/.nvm/nvm.sh" ]; then
+    . "$HOME/.nvm/nvm.sh"
+    nvm use default
+fi
 npm run build
 cd ..
 
