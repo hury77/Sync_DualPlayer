@@ -2751,6 +2751,9 @@ export const SyncDualPlayer: React.FC = () => {
       <div className="absolute top-0 left-0 w-full h-full pointer-events-none z-20 overflow-hidden">
         {eyedropperDrops.filter(d => d.sourceVideo === sourceVideo).map((drop, i) => {
           const pos = mapToScreen(drop.sourceX, drop.sourceY);
+          const isRightHalf = pos.x > (video.parentElement?.clientWidth || rect.width) / 2;
+          const isBottomHalf = pos.y > (video.parentElement?.clientHeight || rect.height) / 2;
+          
           return (
             <React.Fragment key={i}>
               <div 
@@ -2759,7 +2762,11 @@ export const SyncDualPlayer: React.FC = () => {
               />
               <div 
                 className="absolute pointer-events-none flex items-center bg-gray-900/95 text-white rounded-xl shadow-2xl border border-gray-700/50 p-2 backdrop-blur-md"
-                style={{ left: pos.x + 10, top: pos.y + 10 }}
+                style={{ 
+                  left: isRightHalf ? pos.x - 10 : pos.x + 10, 
+                  top: isBottomHalf ? pos.y - 10 : pos.y + 10,
+                  transform: `translate(${isRightHalf ? '-100%' : '0'}, ${isBottomHalf ? '-100%' : '0'})`
+                }}
               >
                 <div 
                   className="w-8 h-8 rounded-md border-2 border-white/20 shadow-inner mr-2"
