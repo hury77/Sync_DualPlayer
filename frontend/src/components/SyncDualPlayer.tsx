@@ -304,12 +304,13 @@ export const SyncDualPlayer: React.FC = () => {
 
   // ── Interaction States ────────────────────────────────────────────────────
   type DragHandleState = {
-    component: "ocr" | "ruler";
+    component: "ocr" | "ruler" | "shape";
     sourceVideo: "acceptance" | "emission";
     type: "tl" | "tr" | "bl" | "br" | "move" | "start" | "end";
     index?: number;
     initialBox?: {startX: number, startY: number, endX: number, endY: number};
     initialRuler?: RulerLine;
+    initialShape?: VideoShape;
     initialMouseX: number;
     initialMouseY: number;
   };
@@ -1181,6 +1182,37 @@ export const SyncDualPlayer: React.FC = () => {
           updated[dragHandle.index!] = line;
           return updated;
         });
+      } else if (dragHandle.component === "shape" && dragHandle.initialShape && dragHandle.index !== undefined) {
+        const shape = { ...dragHandle.initialShape };
+        const startCoords = getMouseSourceCoordinates(dragHandle.initialMouseX, dragHandle.initialMouseY, videoRef);
+        if (!startCoords) return;
+        const dx = coords.sourceX - startCoords.sourceX;
+        const dy = coords.sourceY - startCoords.sourceY;
+
+        if (dragHandle.type === "move") {
+          shape.startX += dx;
+          shape.startY += dy;
+          shape.endX += dx;
+          shape.endY += dy;
+        } else if (dragHandle.type === "start" || dragHandle.type === "tl") {
+          shape.startX = coords.sourceX;
+          shape.startY = coords.sourceY;
+        } else if (dragHandle.type === "end" || dragHandle.type === "br") {
+          shape.endX = coords.sourceX;
+          shape.endY = coords.sourceY;
+        } else if (dragHandle.type === "tr") {
+          shape.endX = coords.sourceX;
+          shape.startY = coords.sourceY;
+        } else if (dragHandle.type === "bl") {
+          shape.startX = coords.sourceX;
+          shape.endY = coords.sourceY;
+        }
+
+        setShapeLines(prev => {
+          const updated = [...prev];
+          updated[dragHandle.index!] = shape;
+          return updated;
+        });
       }
     };
 
@@ -1195,6 +1227,46 @@ export const SyncDualPlayer: React.FC = () => {
       window.removeEventListener("mouseup", handleMouseUp);
     };
   }, [dragHandle]);
+
+  // Global window listener for smooth non-interrupted shape creation
+  useEffect(() => {
+    if (!activeShape) return;
+
+    const handleWindowMouseMove = (e: MouseEvent) => {
+      const videoRef = activeShape.sourceVideo === "acceptance" ? acceptanceVideoRef : emissionVideoRef;
+      const coords = getMouseSourceCoordinates(e.clientX, e.clientY, videoRef);
+      if (coords) {
+        let endX = coords.sourceX;
+        let endY = coords.sourceY;
+        if (e.shiftKey) {
+          const dx = coords.sourceX - activeShape.startX;
+          const dy = coords.sourceY - activeShape.startY;
+          const dist = Math.max(Math.abs(dx), Math.abs(dy));
+          endX = activeShape.startX + Math.sign(dx || 1) * dist;
+          endY = activeShape.startY + Math.sign(dy || 1) * dist;
+        }
+        setActiveShape(prev => prev ? { ...prev, endX, endY } : null);
+      }
+    };
+
+    const handleWindowMouseUp = () => {
+      if (activeShape) {
+        const dist = Math.sqrt(Math.pow(activeShape.endX - activeShape.startX, 2) + Math.pow(activeShape.endY - activeShape.startY, 2));
+        if (dist > 5) {
+          setShapeLines(prev => [...prev, activeShape]);
+          setSelectedShapeId(activeShape.id);
+        }
+        setActiveShape(null);
+      }
+    };
+
+    window.addEventListener("mousemove", handleWindowMouseMove);
+    window.addEventListener("mouseup", handleWindowMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", handleWindowMouseMove);
+      window.removeEventListener("mouseup", handleWindowMouseUp);
+    };
+  }, [activeShape]);
 
   const handleVideoMouseDown = (e: React.MouseEvent<HTMLVideoElement>, videoRef: React.RefObject<HTMLVideoElement | null>) => {
     if (isPlaying) return;
@@ -3176,18 +3248,46 @@ export const SyncDualPlayer: React.FC = () => {
 
           if (shape.type === "arrow") {
             const angle = Math.atan2(end.y - start.y, end.x - start.x);
-            const arrowLen = 12;
+            const arrowLen = 14;
             const arrowAngle = Math.PI / 6;
             const p1 = { x: end.x - arrowLen * Math.cos(angle - arrowAngle), y: end.y - arrowLen * Math.sin(angle - arrowAngle) };
             const p2 = { x: end.x - arrowLen * Math.cos(angle + arrowAngle), y: end.y - arrowLen * Math.sin(angle + arrowAngle) };
 
             return (
-              <g key={shape.id || i} className="pointer-events-auto cursor-pointer" onClick={(e) => { e.stopPropagation(); setSelectedShapeId(shape.id); }}>
-                <line x1={start.x} y1={start.y} x2={end.x} y2={end.y} stroke={shape.color} strokeWidth="3" />
-                <polygon points={`${end.x},${end.y} ${p1.x},${p1.y} ${p2.x},${p2.y}`} fill={shape.color} />
-                {isSelected && (
-                  <circle cx={end.x} cy={end.y} r="6" fill="white" stroke="#3b82f6" strokeWidth="2" />
-                )}
+              <g key={shape.id || i}>
+                {/* Thick hit area for moving line */}
+                <line
+                  x1={start.x} y1={start.y} x2={end.x} y2={end.y}
+                  stroke="transparent" strokeWidth="16"
+                  className="pointer-events-auto cursor-move"
+                  onMouseDown={(e) => {
+                    e.stopPropagation();
+                    setSelectedShapeId(shape.id);
+                    setDragHandle({ component: "shape", sourceVideo, type: "move", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY });
+                  }}
+                />
+                <line x1={start.x} y1={start.y} x2={end.x} y2={end.y} stroke={shape.color} strokeWidth="3" className="pointer-events-none" />
+                <polygon points={`${end.x},${end.y} ${p1.x},${p1.y} ${p2.x},${p2.y}`} fill={shape.color} className="pointer-events-none" />
+                
+                {/* Interactive Drag Handles */}
+                <circle
+                  cx={start.x} cy={start.y} r="6" fill="white" stroke={shape.color} strokeWidth="2"
+                  className="pointer-events-auto cursor-crosshair"
+                  onMouseDown={(e) => {
+                    e.stopPropagation();
+                    setSelectedShapeId(shape.id);
+                    setDragHandle({ component: "shape", sourceVideo, type: "start", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY });
+                  }}
+                />
+                <circle
+                  cx={end.x} cy={end.y} r="6" fill="white" stroke={shape.color} strokeWidth="2"
+                  className="pointer-events-auto cursor-crosshair"
+                  onMouseDown={(e) => {
+                    e.stopPropagation();
+                    setSelectedShapeId(shape.id);
+                    setDragHandle({ component: "shape", sourceVideo, type: "end", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY });
+                  }}
+                />
               </g>
             );
           } else if (shape.type === "circle") {
@@ -3195,11 +3295,32 @@ export const SyncDualPlayer: React.FC = () => {
             const cy = (start.y + end.y) / 2;
             const rx = Math.abs(end.x - start.x) / 2;
             const ry = Math.abs(end.y - start.y) / 2;
+
             return (
-              <g key={shape.id || i} className="pointer-events-auto cursor-pointer" onClick={(e) => { e.stopPropagation(); setSelectedShapeId(shape.id); }}>
-                <ellipse cx={cx} cy={cy} rx={rx} ry={ry} fill="none" stroke={shape.color} strokeWidth="3" />
+              <g key={shape.id || i}>
+                <ellipse
+                  cx={cx} cy={cy} rx={rx} ry={ry}
+                  fill="rgba(0,0,0,0.01)" stroke={shape.color} strokeWidth="3"
+                  className="pointer-events-auto cursor-move"
+                  onMouseDown={(e) => {
+                    e.stopPropagation();
+                    setSelectedShapeId(shape.id);
+                    setDragHandle({ component: "shape", sourceVideo, type: "move", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY });
+                  }}
+                />
                 {isSelected && (
-                  <rect x={cx - rx - 2} y={cy - ry - 2} width={rx * 2 + 4} height={ry * 2 + 4} fill="none" stroke="#3b82f6" strokeWidth="1" strokeDasharray="3 3" />
+                  <>
+                    <rect x={cx - rx - 2} y={cy - ry - 2} width={rx * 2 + 4} height={ry * 2 + 4} fill="none" stroke="#3b82f6" strokeWidth="1" strokeDasharray="3 3" />
+                    {/* Handles */}
+                    <rect x={cx - rx - 6} y={cy - ry - 6} width="8" height="8" fill="white" stroke="#3b82f6" strokeWidth="1.5" className="pointer-events-auto cursor-nwse-resize"
+                      onMouseDown={(e) => { e.stopPropagation(); setDragHandle({ component: "shape", sourceVideo, type: "tl", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY }); }} />
+                    <rect x={cx + rx - 2} y={cy - ry - 6} width="8" height="8" fill="white" stroke="#3b82f6" strokeWidth="1.5" className="pointer-events-auto cursor-nesw-resize"
+                      onMouseDown={(e) => { e.stopPropagation(); setDragHandle({ component: "shape", sourceVideo, type: "tr", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY }); }} />
+                    <rect x={cx - rx - 6} y={cy + ry - 2} width="8" height="8" fill="white" stroke="#3b82f6" strokeWidth="1.5" className="pointer-events-auto cursor-nesw-resize"
+                      onMouseDown={(e) => { e.stopPropagation(); setDragHandle({ component: "shape", sourceVideo, type: "bl", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY }); }} />
+                    <rect x={cx + rx - 2} y={cy + ry - 2} width="8" height="8" fill="white" stroke="#3b82f6" strokeWidth="1.5" className="pointer-events-auto cursor-nwse-resize"
+                      onMouseDown={(e) => { e.stopPropagation(); setDragHandle({ component: "shape", sourceVideo, type: "br", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY }); }} />
+                  </>
                 )}
               </g>
             );
@@ -3209,10 +3330,30 @@ export const SyncDualPlayer: React.FC = () => {
             const w = Math.abs(end.x - start.x);
             const h = Math.abs(end.y - start.y);
             return (
-              <g key={shape.id || i} className="pointer-events-auto cursor-pointer" onClick={(e) => { e.stopPropagation(); setSelectedShapeId(shape.id); }}>
-                <rect x={x} y={y} width={w} height={h} fill="none" stroke={shape.color} strokeWidth="3" />
+              <g key={shape.id || i}>
+                <rect
+                  x={x} y={y} width={w} height={h}
+                  fill="rgba(0,0,0,0.01)" stroke={shape.color} strokeWidth="3"
+                  className="pointer-events-auto cursor-move"
+                  onMouseDown={(e) => {
+                    e.stopPropagation();
+                    setSelectedShapeId(shape.id);
+                    setDragHandle({ component: "shape", sourceVideo, type: "move", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY });
+                  }}
+                />
                 {isSelected && (
-                  <rect x={x - 2} y={y - 2} width={w + 4} height={h + 4} fill="none" stroke="#3b82f6" strokeWidth="1" strokeDasharray="3 3" />
+                  <>
+                    <rect x={x - 2} y={y - 2} width={w + 4} height={h + 4} fill="none" stroke="#3b82f6" strokeWidth="1" strokeDasharray="3 3" />
+                    {/* Handles */}
+                    <rect x={x - 6} y={y - 6} width="8" height="8" fill="white" stroke="#3b82f6" strokeWidth="1.5" className="pointer-events-auto cursor-nwse-resize"
+                      onMouseDown={(e) => { e.stopPropagation(); setDragHandle({ component: "shape", sourceVideo, type: "tl", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY }); }} />
+                    <rect x={x + w - 2} y={y - 6} width="8" height="8" fill="white" stroke="#3b82f6" strokeWidth="1.5" className="pointer-events-auto cursor-nesw-resize"
+                      onMouseDown={(e) => { e.stopPropagation(); setDragHandle({ component: "shape", sourceVideo, type: "tr", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY }); }} />
+                    <rect x={x - 6} y={y + h - 2} width="8" height="8" fill="white" stroke="#3b82f6" strokeWidth="1.5" className="pointer-events-auto cursor-nesw-resize"
+                      onMouseDown={(e) => { e.stopPropagation(); setDragHandle({ component: "shape", sourceVideo, type: "bl", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY }); }} />
+                    <rect x={x + w - 2} y={y + h - 2} width="8" height="8" fill="white" stroke="#3b82f6" strokeWidth="1.5" className="pointer-events-auto cursor-nwse-resize"
+                      onMouseDown={(e) => { e.stopPropagation(); setDragHandle({ component: "shape", sourceVideo, type: "br", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY }); }} />
+                  </>
                 )}
               </g>
             );
