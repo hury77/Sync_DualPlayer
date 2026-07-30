@@ -288,7 +288,7 @@ export const SyncDualPlayer: React.FC = () => {
   // Shape & Text Annotation States
   const [isShapeToolActive, setIsShapeToolActive] = useState(false);
   const [activeShapeType, setActiveShapeType] = useState<ShapeType>("arrow");
-  const [annotationText, setAnnotationText] = useState("Komentarz");
+  const [editingTextId, setEditingTextId] = useState<string | null>(null);
   const [shapeLines, setShapeLines] = useState<VideoShape[]>([]);
   const [activeShape, setActiveShape] = useState<VideoShape | null>(null);
   const [shapeStartPoint, setShapeStartPoint] = useState<{x: number, y: number, video: "acceptance"|"emission"} | null>(null);
@@ -991,6 +991,16 @@ export const SyncDualPlayer: React.FC = () => {
     setIsPlaying(false);
     setCurrentTime(0);
 
+    // Full Reset on stop/reset
+    setShapeLines([]);
+    setRulerLines([]);
+    setEyedropperDrops([]);
+    setActiveShape(null);
+    setShapeStartPoint(null);
+    setSelectedShapeId(null);
+    setActiveRulerLine(null);
+    setRulerStartPoint(null);
+    setEditingTextId(null);
   };
 
   const handleRefresh = () => {
@@ -998,6 +1008,17 @@ export const SyncDualPlayer: React.FC = () => {
     // state and causes onError to fire before the video can rebuffer, crashing both players.
     // Simply seeking to 0 is safe for both blob URLs and server streams.
     const videos = [acceptanceVideoRef.current, emissionVideoRef.current];
+
+    // Full Reset on Refresh
+    setShapeLines([]);
+    setRulerLines([]);
+    setEyedropperDrops([]);
+    setActiveShape(null);
+    setShapeStartPoint(null);
+    setSelectedShapeId(null);
+    setActiveRulerLine(null);
+    setRulerStartPoint(null);
+    setEditingTextId(null);
     const wasPlaying = isPlaying;
 
     // Pause both videos first
@@ -1351,6 +1372,9 @@ export const SyncDualPlayer: React.FC = () => {
     }
 
     if (isShapeToolActive) {
+      const target = e.target as HTMLElement;
+      if (target.tagName !== "VIDEO") return;
+
       const coords = getMouseSourceCoordinates(e.clientX, e.clientY, videoRef);
       if (!coords) return;
       const sourceVideo = videoRef === acceptanceVideoRef ? "acceptance" : "emission";
@@ -1362,7 +1386,7 @@ export const SyncDualPlayer: React.FC = () => {
       }
 
       if (activeShapeType === "text") {
-        // Text creation mode: place text at click coordinates
+        // Text creation mode: place text shape and activate inline frame editing directly on video
         const textShape: VideoShape = {
           id: Date.now().toString() + Math.random().toString(36).substring(2, 5),
           type: "text",
@@ -1372,10 +1396,11 @@ export const SyncDualPlayer: React.FC = () => {
           endY: coords.sourceY,
           sourceVideo,
           color: shapeColor,
-          text: annotationText || "Komentarz"
+          text: "Kliknij, aby wpisać tekst..."
         };
         setShapeLines(prev => [...prev, textShape]);
         setSelectedShapeId(textShape.id);
+        setEditingTextId(textShape.id);
         setShapeStartPoint(null);
         setActiveShape(null);
         return;
@@ -3237,7 +3262,7 @@ export const SyncDualPlayer: React.FC = () => {
         {eyedropperDrops.filter(d => d.sourceVideo === sourceVideo).map((drop, i) => {
           const pos = mapToScreen(drop.sourceX, drop.sourceY);
           const isRightHalf = pos.x > (video.parentElement?.clientWidth || rect.width) / 2;
-          const isBottomHalf = pos.y > (video.parentElement?.clientHeight || rect.height) / 2;
+              const isBottomHalf = pos.y > (video.parentElement?.clientHeight || rect.height) / 2;
           
           return (
             <React.Fragment key={i}>
@@ -3298,6 +3323,9 @@ export const SyncDualPlayer: React.FC = () => {
       y: (sy / video.videoHeight) * renderedHeight + offsetY + video.offsetTop
     });
 
+    const isDrawing = activeShape !== null || shapeStartPoint !== null;
+    const pointerClass = isDrawing ? "pointer-events-none" : "pointer-events-auto cursor-move";
+
     return (
       <svg xmlns="http://www.w3.org/2000/svg" className="absolute top-0 left-0 w-full h-full pointer-events-none z-20">
         {shapesToRender.filter(s => s.sourceVideo === sourceVideo).map((shape, i) => {
@@ -3313,40 +3341,48 @@ export const SyncDualPlayer: React.FC = () => {
             const p2 = { x: end.x - arrowLen * Math.cos(angle + arrowAngle), y: end.y - arrowLen * Math.sin(angle + arrowAngle) };
 
             return (
-              <g key={shape.id || i}>
-                {/* Thick hit area for moving line */}
-                <line
-                  x1={start.x} y1={start.y} x2={end.x} y2={end.y}
-                  stroke="transparent" strokeWidth="16"
-                  className="pointer-events-auto cursor-move"
-                  onMouseDown={(e) => {
-                    e.stopPropagation();
-                    setSelectedShapeId(shape.id);
-                    setDragHandle({ component: "shape", sourceVideo, type: "move", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY });
-                  }}
-                />
-                <line x1={start.x} y1={start.y} x2={end.x} y2={end.y} stroke={shape.color} strokeWidth="3" className="pointer-events-none" />
+              <g key={shape.id || i} style={{ filter: "drop-shadow(0px 1px 2px rgba(0,0,0,0.7))" }}>
+                {!isDrawing && (
+                  <line
+                    x1={start.x} y1={start.y} x2={end.x} y2={end.y}
+                    stroke="transparent" strokeWidth="16"
+                    className="pointer-events-auto cursor-move"
+                    onMouseDown={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      setSelectedShapeId(shape.id);
+                      setDragHandle({ component: "shape", sourceVideo, type: "move", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY });
+                    }}
+                    onClick={(e) => { e.stopPropagation(); e.preventDefault(); }}
+                  />
+                )}
+                <line x1={start.x} y1={start.y} x2={end.x} y2={end.y} stroke={shape.color} strokeWidth="2.5" className="pointer-events-none" />
                 <polygon points={`${end.x},${end.y} ${p1.x},${p1.y} ${p2.x},${p2.y}`} fill={shape.color} className="pointer-events-none" />
                 
-                {/* Interactive Drag Handles */}
-                <circle
-                  cx={start.x} cy={start.y} r="6" fill="white" stroke={shape.color} strokeWidth="2"
-                  className="pointer-events-auto cursor-crosshair"
-                  onMouseDown={(e) => {
-                    e.stopPropagation();
-                    setSelectedShapeId(shape.id);
-                    setDragHandle({ component: "shape", sourceVideo, type: "start", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY });
-                  }}
-                />
-                <circle
-                  cx={end.x} cy={end.y} r="6" fill="white" stroke={shape.color} strokeWidth="2"
-                  className="pointer-events-auto cursor-crosshair"
-                  onMouseDown={(e) => {
-                    e.stopPropagation();
-                    setSelectedShapeId(shape.id);
-                    setDragHandle({ component: "shape", sourceVideo, type: "end", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY });
-                  }}
-                />
+                {!isDrawing && (
+                  <>
+                    <circle
+                      cx={start.x} cy={start.y} r="6" fill="white" stroke={shape.color} strokeWidth="2"
+                      className="pointer-events-auto cursor-crosshair"
+                      onMouseDown={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        setSelectedShapeId(shape.id);
+                        setDragHandle({ component: "shape", sourceVideo, type: "start", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY });
+                      }}
+                    />
+                    <circle
+                      cx={end.x} cy={end.y} r="6" fill="white" stroke={shape.color} strokeWidth="2"
+                      className="pointer-events-auto cursor-crosshair"
+                      onMouseDown={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        setSelectedShapeId(shape.id);
+                        setDragHandle({ component: "shape", sourceVideo, type: "end", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY });
+                      }}
+                    />
+                  </>
+                )}
               </g>
             );
           } else if (shape.type === "circle") {
@@ -3356,29 +3392,31 @@ export const SyncDualPlayer: React.FC = () => {
             const ry = Math.abs(end.y - start.y) / 2;
 
             return (
-              <g key={shape.id || i}>
+              <g key={shape.id || i} style={{ filter: "drop-shadow(0px 1px 2px rgba(0,0,0,0.7))" }}>
                 <ellipse
                   cx={cx} cy={cy} rx={rx} ry={ry}
-                  fill="rgba(0,0,0,0.01)" stroke={shape.color} strokeWidth="3"
-                  className="pointer-events-auto cursor-move"
+                  fill="none" stroke={shape.color} strokeWidth="2.5"
+                  className={pointerClass}
                   onMouseDown={(e) => {
+                    if (isDrawing) return;
                     e.stopPropagation();
+                    e.preventDefault();
                     setSelectedShapeId(shape.id);
                     setDragHandle({ component: "shape", sourceVideo, type: "move", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY });
                   }}
+                  onClick={(e) => { e.stopPropagation(); e.preventDefault(); }}
                 />
-                {isSelected && (
+                {!isDrawing && isSelected && (
                   <>
                     <rect x={cx - rx - 2} y={cy - ry - 2} width={rx * 2 + 4} height={ry * 2 + 4} fill="none" stroke="#3b82f6" strokeWidth="1" strokeDasharray="3 3" />
-                    {/* Handles */}
                     <rect x={cx - rx - 6} y={cy - ry - 6} width="8" height="8" fill="white" stroke="#3b82f6" strokeWidth="1.5" className="pointer-events-auto cursor-nwse-resize"
-                      onMouseDown={(e) => { e.stopPropagation(); setDragHandle({ component: "shape", sourceVideo, type: "tl", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY }); }} />
+                      onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); setDragHandle({ component: "shape", sourceVideo, type: "tl", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY }); }} />
                     <rect x={cx + rx - 2} y={cy - ry - 6} width="8" height="8" fill="white" stroke="#3b82f6" strokeWidth="1.5" className="pointer-events-auto cursor-nesw-resize"
-                      onMouseDown={(e) => { e.stopPropagation(); setDragHandle({ component: "shape", sourceVideo, type: "tr", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY }); }} />
+                      onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); setDragHandle({ component: "shape", sourceVideo, type: "tr", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY }); }} />
                     <rect x={cx - rx - 6} y={cy + ry - 2} width="8" height="8" fill="white" stroke="#3b82f6" strokeWidth="1.5" className="pointer-events-auto cursor-nesw-resize"
-                      onMouseDown={(e) => { e.stopPropagation(); setDragHandle({ component: "shape", sourceVideo, type: "bl", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY }); }} />
+                      onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); setDragHandle({ component: "shape", sourceVideo, type: "bl", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY }); }} />
                     <rect x={cx + rx - 2} y={cy + ry - 2} width="8" height="8" fill="white" stroke="#3b82f6" strokeWidth="1.5" className="pointer-events-auto cursor-nwse-resize"
-                      onMouseDown={(e) => { e.stopPropagation(); setDragHandle({ component: "shape", sourceVideo, type: "br", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY }); }} />
+                      onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); setDragHandle({ component: "shape", sourceVideo, type: "br", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY }); }} />
                   </>
                 )}
               </g>
@@ -3389,12 +3427,13 @@ export const SyncDualPlayer: React.FC = () => {
             const w = Math.abs(end.x - start.x);
             const h = Math.abs(end.y - start.y);
             return (
-              <g key={shape.id || i}>
+              <g key={shape.id || i} style={{ filter: "drop-shadow(0px 1px 2px rgba(0,0,0,0.7))" }}>
                 <rect
                   x={x} y={y} width={w} height={h}
-                  fill="rgba(0,0,0,0.01)" stroke={shape.color} strokeWidth="3"
-                  className="pointer-events-auto cursor-move"
+                  fill="none" stroke={shape.color} strokeWidth="2.5"
+                  className={pointerClass}
                   onMouseDown={(e) => {
+                    if (isDrawing) return;
                     e.stopPropagation();
                     e.preventDefault();
                     setSelectedShapeId(shape.id);
@@ -3402,10 +3441,9 @@ export const SyncDualPlayer: React.FC = () => {
                   }}
                   onClick={(e) => { e.stopPropagation(); e.preventDefault(); }}
                 />
-                {isSelected && (
+                {!isDrawing && isSelected && (
                   <>
                     <rect x={x - 2} y={y - 2} width={w + 4} height={h + 4} fill="none" stroke="#3b82f6" strokeWidth="1" strokeDasharray="3 3" />
-                    {/* Handles */}
                     <rect x={x - 6} y={y - 6} width="8" height="8" fill="white" stroke="#3b82f6" strokeWidth="1.5" className="pointer-events-auto cursor-nwse-resize"
                       onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); setDragHandle({ component: "shape", sourceVideo, type: "tl", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY }); }} />
                     <rect x={x + w - 2} y={y - 6} width="8" height="8" fill="white" stroke="#3b82f6" strokeWidth="1.5" className="pointer-events-auto cursor-nesw-resize"
@@ -3420,13 +3458,37 @@ export const SyncDualPlayer: React.FC = () => {
             );
           } else if (shape.type === "text") {
             const isSelected = selectedShapeId === shape.id;
-            const textVal = shape.text || annotationText || "Komentarz";
+            const isEditingThis = editingTextId === shape.id;
+            const textVal = shape.text || "Komentarz";
+
+            if (isEditingThis) {
+              return (
+                <foreignObject key={shape.id || i} x={start.x} y={start.y - 16} width="240" height="42" className="pointer-events-auto z-40">
+                  <input
+                    type="text"
+                    autoFocus
+                    value={shape.text || ""}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setShapeLines(prev => prev.map(s => s.id === shape.id ? { ...s, text: val } : s));
+                    }}
+                    onBlur={() => setEditingTextId(null)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") setEditingTextId(null);
+                    }}
+                    className="w-full px-2 py-1 text-sm font-bold text-white bg-gray-900/90 border-2 border-blue-500 rounded-lg shadow-xl focus:outline-none font-sans"
+                    style={{ color: shape.color, textShadow: "0 1px 2px black" }}
+                  />
+                </foreignObject>
+              );
+            }
+
             return (
-              <g key={shape.id || i}>
-                {isSelected && (
+              <g key={shape.id || i} style={{ filter: "drop-shadow(0px 1px 2px rgba(0,0,0,0.7))" }}>
+                {!isDrawing && isSelected && (
                   <rect
                     x={start.x - 4} y={start.y - 18}
-                    width={Math.max(60, textVal.length * 9.5 + 8)} height="24"
+                    width={Math.max(60, textVal.length * 9.5 + 12)} height="24"
                     fill="none" stroke="#3b82f6" strokeWidth="1.5" strokeDasharray="3 3"
                   />
                 )}
@@ -3684,10 +3746,10 @@ export const SyncDualPlayer: React.FC = () => {
             className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${
               isShapeToolActive ? "bg-white text-[#350F9C] shadow-sm" : "bg-white/10 text-white hover:bg-white/20"
             }`}
-            title="Narzędzie Kształtów i Tekstu"
+            title={language === 'en' ? "Tools" : "Narzędzia"}
           >
             <ShapeIcon className="w-4 h-4" />
-            <span>Kształty</span>
+            <span>{language === 'en' ? "Tools" : "Narzędzia"}</span>
           </button>
 
           {isShapeToolActive && (
@@ -3760,16 +3822,6 @@ export const SyncDualPlayer: React.FC = () => {
                 className="w-6 h-6 p-0 border-0 rounded-full cursor-pointer bg-transparent ml-1"
                 title="Kolor adnotacji"
               />
-
-              {activeShapeType === "text" && (
-                <input
-                  type="text"
-                  value={annotationText}
-                  onChange={(e) => setAnnotationText(e.target.value)}
-                  placeholder="Wpisz tekst (np. Za małe logo)..."
-                  className="px-2 py-1 text-xs rounded-lg bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-red-500 w-48 font-sans font-medium"
-                />
-              )}
 
               {shapeLines.length > 0 && (
                 <button
@@ -4655,93 +4707,37 @@ export const SyncDualPlayer: React.FC = () => {
               )}
             </div>
 
-            {/* Shape Tool Toggle */}
-            <div className="flex items-center gap-1.5 bg-white/10 p-1 rounded-2xl border border-white/20">
+            {/* Ruler Toggle */}
+            <div className="flex items-center gap-1">
               <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setIsShapeToolActive(!isShapeToolActive);
-                  if (!isShapeToolActive) {
+                onClick={() => {
+                  setIsRulerActive(!isRulerActive);
+                  if (!isRulerActive) {
                     setIsEyedropperActive(false);
-                    setIsRulerActive(false);
+                    setEyedropperDrops([]);
+                  } else {
+                    setRulerLines([]);
+                    setActiveRulerLine(null);
                   }
                 }}
                 disabled={!acceptanceFile && !emissionFile}
-                className={`w-10 h-10 flex items-center justify-center rounded-xl transition-colors disabled:opacity-100 disabled:text-white ${
-                  isShapeToolActive 
-                    ? "bg-white text-[#4960E6] shadow-sm" 
-                    : "bg-[#4960E6] hover:bg-white hover:text-[#4960E6] text-white"
+                className={`w-10 h-10 flex items-center justify-center rounded-xl transition-colors disabled:opacity-100 disabled:text-white  ${
+                  isRulerActive 
+                    ? "bg-white text-[#4960E6]" 
+                    : "bg-[#4960E6] hover:bg-white hover:text-[#4960E6] text-white disabled:hover:bg-[#4960E6] disabled:hover:text-white"
                 }`}
-                title="Narzędzie Kształtów (Strzałka, Kółko, Kwadrat)"
+                title={isRulerActive ? t("turnOffRuler") : t("turnOnRuler")}
               >
-                <ShapeIcon className="w-5 h-5" />
+                <RulerIcon className="w-5 h-5" />
               </button>
-              
-              {isShapeToolActive && (
-                <div className="flex items-center gap-1 px-1">
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setActiveShapeType("arrow");
-                      setShapeStartPoint(null);
-                      setActiveShape(null);
-                    }}
-                    className={`w-8 h-8 rounded-lg text-xs font-bold flex items-center justify-center transition-all ${
-                      activeShapeType === "arrow" ? "bg-red-500 text-white shadow-sm ring-2 ring-white/50" : "bg-white/20 text-white hover:bg-white/30"
-                    }`}
-                    title="Strzałka"
-                  >
-                    ➔
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setActiveShapeType("circle");
-                      setShapeStartPoint(null);
-                      setActiveShape(null);
-                    }}
-                    className={`w-8 h-8 rounded-lg text-xs font-bold flex items-center justify-center transition-all ${
-                      activeShapeType === "circle" ? "bg-red-500 text-white shadow-sm ring-2 ring-white/50" : "bg-white/20 text-white hover:bg-white/30"
-                    }`}
-                    title="Kółko"
-                  >
-                    ⭕
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setActiveShapeType("rectangle");
-                      setShapeStartPoint(null);
-                      setActiveShape(null);
-                    }}
-                    className={`w-8 h-8 rounded-lg text-xs font-bold flex items-center justify-center transition-all ${
-                      activeShapeType === "rectangle" ? "bg-red-500 text-white shadow-sm ring-2 ring-white/50" : "bg-white/20 text-white hover:bg-white/30"
-                    }`}
-                    title="Kwadrat / Prostokąt"
-                  >
-                    🔲
-                  </button>
-                  <input
-                    type="color"
-                    value={annotationColor}
-                    onChange={(e) => setAnnotationColor(e.target.value)}
-                    className="w-6 h-6 p-0 border-0 rounded-full cursor-pointer bg-transparent ml-1"
-                    title="Wybierz kolor adnotacji (linijki i kształtów)"
-                  />
-                  {shapeLines.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); setShapeLines([]); }}
-                      className="w-7 h-7 flex items-center justify-center rounded-lg text-red-300 hover:text-white hover:bg-red-500/30 transition-colors ml-0.5"
-                      title="Wyczyść kształty"
-                    >
-                      <XMarkIcon className="w-4 h-4" />
-                    </button>
-                  )}
-                </div>
+              {isRulerActive && (
+                <input
+                  type="color"
+                  value={rulerColor}
+                  onChange={(e) => setAnnotationColor(e.target.value)}
+                  className="w-6 h-6 p-0 border-0 rounded-full overflow-hidden cursor-pointer bg-transparent"
+                  title="Select ruler color"
+                />
               )}
             </div>
 
