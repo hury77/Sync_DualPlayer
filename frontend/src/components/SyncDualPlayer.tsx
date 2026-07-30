@@ -4306,7 +4306,7 @@ export const SyncDualPlayer: React.FC = () => {
             </div>
 
             {/* Shape Tool Toggle */}
-            <div className="relative">
+            <div className="flex items-center gap-1.5 bg-white/10 p-1 rounded-2xl border border-white/20">
               <button
                 onClick={(e) => {
                   e.stopPropagation();
@@ -4319,7 +4319,7 @@ export const SyncDualPlayer: React.FC = () => {
                 disabled={!acceptanceFile && !emissionFile}
                 className={`w-10 h-10 flex items-center justify-center rounded-xl transition-colors disabled:opacity-100 disabled:text-white ${
                   isShapeToolActive 
-                    ? "bg-white text-[#4960E6]" 
+                    ? "bg-white text-[#4960E6] shadow-sm" 
                     : "bg-[#4960E6] hover:bg-white hover:text-[#4960E6] text-white"
                 }`}
                 title="Narzędzie Kształtów (Strzałka, Kółko, Kwadrat)"
@@ -4328,48 +4328,49 @@ export const SyncDualPlayer: React.FC = () => {
               </button>
               
               {isShapeToolActive && (
-                <div 
-                  onClick={(e) => e.stopPropagation()}
-                  onMouseDown={(e) => e.stopPropagation()}
-                  className="absolute bottom-14 left-1/2 -translate-x-1/2 bg-white dark:bg-[#1A1A1A] p-2 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 flex items-center gap-2 z-50 whitespace-nowrap min-w-max"
-                >
+                <div className="flex items-center gap-1 px-1">
                   <button
                     type="button"
                     onClick={(e) => { e.stopPropagation(); setActiveShapeType("arrow"); }}
-                    className={`px-2 py-1 rounded-lg text-xs font-bold flex items-center gap-1 transition-all ${activeShapeType === "arrow" ? "bg-red-500 text-white shadow-sm" : "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200"}`}
+                    className={`w-8 h-8 rounded-lg text-xs font-bold flex items-center justify-center transition-all ${
+                      activeShapeType === "arrow" ? "bg-red-500 text-white shadow-sm ring-2 ring-white/50" : "bg-white/20 text-white hover:bg-white/30"
+                    }`}
                     title="Strzałka"
                   >
-                    <span>➔</span> Strzałka
+                    ➔
                   </button>
                   <button
                     type="button"
                     onClick={(e) => { e.stopPropagation(); setActiveShapeType("circle"); }}
-                    className={`px-2 py-1 rounded-lg text-xs font-bold flex items-center gap-1 transition-all ${activeShapeType === "circle" ? "bg-red-500 text-white shadow-sm" : "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200"}`}
+                    className={`w-8 h-8 rounded-lg text-xs font-bold flex items-center justify-center transition-all ${
+                      activeShapeType === "circle" ? "bg-red-500 text-white shadow-sm ring-2 ring-white/50" : "bg-white/20 text-white hover:bg-white/30"
+                    }`}
                     title="Kółko"
                   >
-                    <span>⭕</span> Kółko
+                    ⭕
                   </button>
                   <button
                     type="button"
                     onClick={(e) => { e.stopPropagation(); setActiveShapeType("rectangle"); }}
-                    className={`px-2 py-1 rounded-lg text-xs font-bold flex items-center gap-1 transition-all ${activeShapeType === "rectangle" ? "bg-red-500 text-white shadow-sm" : "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200"}`}
+                    className={`w-8 h-8 rounded-lg text-xs font-bold flex items-center justify-center transition-all ${
+                      activeShapeType === "rectangle" ? "bg-red-500 text-white shadow-sm ring-2 ring-white/50" : "bg-white/20 text-white hover:bg-white/30"
+                    }`}
                     title="Kwadrat / Prostokąt"
                   >
-                    <span>🔲</span> Kwadrat
+                    🔲
                   </button>
-                  <div className="w-px h-5 bg-gray-200 dark:bg-gray-700 mx-0.5"></div>
                   <input
                     type="color"
                     value={annotationColor}
                     onChange={(e) => setAnnotationColor(e.target.value)}
-                    className="w-6 h-6 p-0 border-0 rounded-full cursor-pointer bg-transparent"
+                    className="w-6 h-6 p-0 border-0 rounded-full cursor-pointer bg-transparent ml-1"
                     title="Wybierz kolor adnotacji (linijki i kształtów)"
                   />
                   {shapeLines.length > 0 && (
                     <button
                       type="button"
                       onClick={(e) => { e.stopPropagation(); setShapeLines([]); }}
-                      className="p-1 rounded-lg text-xs text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors"
+                      className="w-7 h-7 flex items-center justify-center rounded-lg text-red-300 hover:text-white hover:bg-red-500/30 transition-colors ml-0.5"
                       title="Wyczyść kształty"
                     >
                       <XMarkIcon className="w-4 h-4" />
