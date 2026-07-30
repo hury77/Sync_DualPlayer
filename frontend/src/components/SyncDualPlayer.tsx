@@ -274,9 +274,12 @@ export const SyncDualPlayer: React.FC = () => {
   const [isEyedropperActive, setIsEyedropperActive] = useState(false);
   const [eyedropperDrops, setEyedropperDrops] = useState<{ r: number, g: number, b: number, hex: string, sourceX: number, sourceY: number, sourceVideo: "acceptance" | "emission" }[]>([]);
 
-  // Ruler States
+  // Ruler & Shape Annotation Unified Color State
+  const [annotationColor, setAnnotationColor] = useState("#ef4444"); // Default red as requested
+  const rulerColor = annotationColor;
+  const shapeColor = annotationColor;
+
   const [isRulerActive, setIsRulerActive] = useState(false);
-  const [rulerColor, setRulerColor] = useState("#3b82f6");
   const [rulerLines, setRulerLines] = useState<RulerLine[]>([]);
   const [activeRulerLine, setActiveRulerLine] = useState<RulerLine | null>(null);
   const [rulerStartPoint, setRulerStartPoint] = useState<{x: number, y: number, video: "acceptance"|"emission"} | null>(null);
@@ -284,7 +287,6 @@ export const SyncDualPlayer: React.FC = () => {
   // Shape Annotation States
   const [isShapeToolActive, setIsShapeToolActive] = useState(false);
   const [activeShapeType, setActiveShapeType] = useState<ShapeType>("arrow");
-  const [shapeColor, setShapeColor] = useState("#ef4444"); // Default red as requested
   const [shapeLines, setShapeLines] = useState<VideoShape[]>([]);
   const [activeShape, setActiveShape] = useState<VideoShape | null>(null);
   const [selectedShapeId, setSelectedShapeId] = useState<string | null>(null);
@@ -2685,6 +2687,14 @@ export const SyncDualPlayer: React.FC = () => {
       ocrTextEmission: (isOcrActive && !isSinglePlayerMode) ? ocrTextEmission : undefined,
       ocrBriefText: isOcrActive ? ocrBriefText : undefined,
     });
+    
+    // Clear all screen annotations automatically after capturing screenshot
+    setShapeLines([]);
+    setRulerLines([]);
+    setEyedropperDrops([]);
+    setActiveRulerLine(null);
+    setActiveShape(null);
+
     setCapturingReport(false);
   };
 
@@ -2704,14 +2714,14 @@ export const SyncDualPlayer: React.FC = () => {
     const isEn = language === "en";
 
     const strings = {
-      reportTitle: isEn ? "QA INSPECTION REPORT" : "RAPORT INSPEKCJI QA",
+      reportTitle: isEn ? "QA REPORT" : "RAPORT QA",
       generatedOn: isEn ? "Generated on:" : "Data wygenerowania:",
       playerMode: isEn ? "Player Mode:" : "Tryb odtwarzacza:",
       singlePlayer: isEn ? "Single Player (Inspection)" : "Pojedynczy (Inspekcja)",
       dualPlayer: isEn ? "Dual Player (Acceptance vs Emission)" : "Podwójny (Akceptacja vs Emisja)",
       totalScreenshots: isEn ? "Total Screenshots:" : "Liczba zrzutów w raporcie:",
-      accVideo: acceptanceCustomName || (isEn ? "Acceptance Video" : "Wideo Akceptacji"),
-      emiVideo: emissionCustomName || (isEn ? "Emission Video" : "Wideo Emisji"),
+      accVideo: acceptanceCustomName || (isEn ? "Acceptance Video" : "Wideo 1"),
+      emiVideo: emissionCustomName || (isEn ? "Emission Video" : "Wideo 2"),
       screenshotHeader: isEn ? "Screenshot #" : "Zrzut ekranu #",
       timecode: isEn ? "Timecode:" : "Czas wideo:",
       type: isEn ? "Type:" : "Typ:",
@@ -2740,6 +2750,11 @@ export const SyncDualPlayer: React.FC = () => {
       }
     };
 
+    const truncateName = (name?: string, max = 55) => {
+      if (!name) return isEn ? "None" : "Brak";
+      return name.length > max ? name.slice(0, max) + "..." : name;
+    };
+
     doc.setFillColor(30, 27, 75);
     doc.rect(0, 0, 210, 26, "F");
 
@@ -2756,9 +2771,10 @@ export const SyncDualPlayer: React.FC = () => {
     doc.setFillColor(79, 70, 229);
     doc.rect(0, 26, 210, 2, "F");
 
+    const cardH = isSinglePlayerMode ? 28 : 34;
     doc.setFillColor(248, 250, 252);
     doc.setDrawColor(226, 232, 240);
-    doc.roundedRect(15, 33, 180, 26, 3, 3, "FD");
+    doc.roundedRect(15, 33, 180, cardH, 3, 3, "FD");
 
     doc.setFont(fontName, "bold");
     doc.setFontSize(8.5);
@@ -2772,13 +2788,13 @@ export const SyncDualPlayer: React.FC = () => {
     doc.setFont(fontName, "normal");
     doc.setFontSize(8);
     doc.setTextColor(71, 85, 105);
-    doc.text(`${strings.accVideo}: ${acceptanceFile?.name || (isEn ? "Not loaded" : "Brak")}`, 20, 50);
+    doc.text(`${strings.accVideo}: ${truncateName(acceptanceFile?.name)}`, 20, 50);
     if (!isSinglePlayerMode) {
-      doc.text(`${strings.emiVideo}: ${emissionFile?.name || (isEn ? "Not loaded" : "Brak")}`, 115, 50);
+      doc.text(`${strings.emiVideo}: ${truncateName(emissionFile?.name)}`, 20, 56);
     }
-    doc.text(`${strings.totalScreenshots} ${reportItems.length}`, !isSinglePlayerMode ? 20 : 115, 55);
+    doc.text(`${strings.totalScreenshots} ${reportItems.length}`, 20, isSinglePlayerMode ? 56 : 62);
 
-    let yOffset = 66;
+    let yOffset = 33 + cardH + 8;
 
     reportItems.forEach((item, index) => {
       if (yOffset > 230) {
@@ -4282,7 +4298,7 @@ export const SyncDualPlayer: React.FC = () => {
                 <input
                   type="color"
                   value={rulerColor}
-                  onChange={(e) => setRulerColor(e.target.value)}
+                  onChange={(e) => setAnnotationColor(e.target.value)}
                   className="w-6 h-6 p-0 border-0 rounded-full overflow-hidden cursor-pointer bg-transparent"
                   title="Select ruler color"
                 />
@@ -4292,7 +4308,8 @@ export const SyncDualPlayer: React.FC = () => {
             {/* Shape Tool Toggle */}
             <div className="relative">
               <button
-                onClick={() => {
+                onClick={(e) => {
+                  e.stopPropagation();
                   setIsShapeToolActive(!isShapeToolActive);
                   if (!isShapeToolActive) {
                     setIsEyedropperActive(false);
@@ -4311,39 +4328,48 @@ export const SyncDualPlayer: React.FC = () => {
               </button>
               
               {isShapeToolActive && (
-                <div className="absolute bottom-12 left-0 bg-white dark:bg-[#1A1A1A] p-2 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 flex items-center gap-1.5 z-30">
+                <div 
+                  onClick={(e) => e.stopPropagation()}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  className="absolute bottom-14 left-1/2 -translate-x-1/2 bg-white dark:bg-[#1A1A1A] p-2 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 flex items-center gap-2 z-50 whitespace-nowrap min-w-max"
+                >
                   <button
-                    onClick={() => setActiveShapeType("arrow")}
-                    className={`p-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 ${activeShapeType === "arrow" ? "bg-red-500 text-white" : "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200"}`}
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setActiveShapeType("arrow"); }}
+                    className={`px-2 py-1 rounded-lg text-xs font-bold flex items-center gap-1 transition-all ${activeShapeType === "arrow" ? "bg-red-500 text-white shadow-sm" : "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200"}`}
                     title="Strzałka"
                   >
-                    ➔
+                    <span>➔</span> Strzałka
                   </button>
                   <button
-                    onClick={() => setActiveShapeType("circle")}
-                    className={`p-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 ${activeShapeType === "circle" ? "bg-red-500 text-white" : "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200"}`}
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setActiveShapeType("circle"); }}
+                    className={`px-2 py-1 rounded-lg text-xs font-bold flex items-center gap-1 transition-all ${activeShapeType === "circle" ? "bg-red-500 text-white shadow-sm" : "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200"}`}
                     title="Kółko"
                   >
-                    ⭕
+                    <span>⭕</span> Kółko
                   </button>
                   <button
-                    onClick={() => setActiveShapeType("rectangle")}
-                    className={`p-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 ${activeShapeType === "rectangle" ? "bg-red-500 text-white" : "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200"}`}
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setActiveShapeType("rectangle"); }}
+                    className={`px-2 py-1 rounded-lg text-xs font-bold flex items-center gap-1 transition-all ${activeShapeType === "rectangle" ? "bg-red-500 text-white shadow-sm" : "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200"}`}
                     title="Kwadrat / Prostokąt"
                   >
-                    🔲
+                    <span>🔲</span> Kwadrat
                   </button>
+                  <div className="w-px h-5 bg-gray-200 dark:bg-gray-700 mx-0.5"></div>
                   <input
                     type="color"
-                    value={shapeColor}
-                    onChange={(e) => setShapeColor(e.target.value)}
+                    value={annotationColor}
+                    onChange={(e) => setAnnotationColor(e.target.value)}
                     className="w-6 h-6 p-0 border-0 rounded-full cursor-pointer bg-transparent"
-                    title="Wybierz kolor kształtu"
+                    title="Wybierz kolor adnotacji (linijki i kształtów)"
                   />
                   {shapeLines.length > 0 && (
                     <button
-                      onClick={() => setShapeLines([])}
-                      className="p-1.5 rounded-lg text-xs text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30"
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setShapeLines([]); }}
+                      className="p-1 rounded-lg text-xs text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors"
                       title="Wyczyść kształty"
                     >
                       <XMarkIcon className="w-4 h-4" />
