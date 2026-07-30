@@ -1165,17 +1165,35 @@ export const SyncDualPlayer: React.FC = () => {
       const sourceVideo = videoRef === acceptanceVideoRef ? "acceptance" : "emission";
       
       if (rulerStartPoint && rulerStartPoint.video === sourceVideo) {
+        const dx = coords.sourceX - rulerStartPoint.x;
+        const dy = coords.sourceY - rulerStartPoint.y;
+        let endX = coords.sourceX;
+        let endY = coords.sourceY;
+        if (e.shiftKey) {
+          const absDx = Math.abs(dx);
+          const absDy = Math.abs(dy);
+          if (absDx > 2 * absDy) { endY = rulerStartPoint.y; }
+          else if (absDy > 2 * absDx) { endX = rulerStartPoint.x; }
+          else {
+            const dist = Math.max(absDx, absDy);
+            endX = rulerStartPoint.x + Math.sign(dx || 1) * dist;
+            endY = rulerStartPoint.y + Math.sign(dy || 1) * dist;
+          }
+        }
         setRulerLines(prev => [...prev, {
           startX: rulerStartPoint.x,
           startY: rulerStartPoint.y,
-          endX: coords.sourceX,
-          endY: coords.sourceY,
+          endX,
+          endY,
           sourceVideo,
           color: rulerColor
         }]);
         setRulerStartPoint(null);
         setActiveRulerLine(null);
       } else {
+        if (activeRulerLine && rulerStartPoint && (Math.abs(activeRulerLine.endX - rulerStartPoint.x) > 5 || Math.abs(activeRulerLine.endY - rulerStartPoint.y) > 5)) {
+          setRulerLines(prev => [...prev, activeRulerLine]);
+        }
         setRulerStartPoint({ x: coords.sourceX, y: coords.sourceY, video: sourceVideo });
         setActiveRulerLine({
           startX: coords.sourceX,
@@ -1234,13 +1252,31 @@ export const SyncDualPlayer: React.FC = () => {
   const handleVideoMouseMove = (e: React.MouseEvent<HTMLVideoElement>, videoRef: React.RefObject<HTMLVideoElement | null>) => {
     if (e.buttons !== 1) return;
     if (isRulerActive && activeRulerLine && !isPlaying) {
-      const coords = getMouseSourceCoordinates(e.clientX, e.clientY, videoRef);
-      if (coords) {
-        setActiveRulerLine({
-          ...activeRulerLine,
-          endX: coords.sourceX,
-          endY: coords.sourceY
-        });
+      const sourceVideo = videoRef === acceptanceVideoRef ? "acceptance" : "emission";
+      if (activeRulerLine.sourceVideo === sourceVideo) {
+        const coords = getMouseSourceCoordinates(e.clientX, e.clientY, videoRef);
+        if (coords) {
+          let endX = coords.sourceX;
+          let endY = coords.sourceY;
+          if (e.shiftKey) {
+            const dx = coords.sourceX - activeRulerLine.startX;
+            const dy = coords.sourceY - activeRulerLine.startY;
+            const absDx = Math.abs(dx);
+            const absDy = Math.abs(dy);
+            if (absDx > 2 * absDy) { endY = activeRulerLine.startY; }
+            else if (absDy > 2 * absDx) { endX = activeRulerLine.startX; }
+            else {
+              const dist = Math.max(absDx, absDy);
+              endX = activeRulerLine.startX + Math.sign(dx || 1) * dist;
+              endY = activeRulerLine.startY + Math.sign(dy || 1) * dist;
+            }
+          }
+          setActiveRulerLine({
+            ...activeRulerLine,
+            endX,
+            endY
+          });
+        }
       }
     }
 
@@ -1909,16 +1945,16 @@ export const SyncDualPlayer: React.FC = () => {
         ctx.fillRect(SIDE_W, 0, SIDE_W, LABEL_H);
         ctx.fillStyle = "#ef4444";
         ctx.font = "bold 18px 'Courier New', monospace";
-        ctx.fillText("EMISSION", SIDE_W + 20, 22);
+        ctx.fillText("EMISSION", SIDE_W + 95, 22);
         ctx.fillStyle = "#fca5a5";
         ctx.font = "13px 'Courier New', monospace";
-        ctx.fillText(emissionFile?.name?.slice(0, 40) ?? "", SIDE_W + 20, 46);
+        ctx.fillText(emissionFile?.name?.slice(0, 40) ?? "", SIDE_W + 95, 46);
       }
 
       // Timecode centered at top
       ctx.fillStyle = "#1e293b";
       const timecodeX = isSinglePlayerMode ? SIDE_W / 2 : SIDE_W;
-      ctx.fillRect(timecodeX - 90, 0, 180, LABEL_H);
+      ctx.fillRect(timecodeX - 80, 0, 160, LABEL_H);
       ctx.fillStyle = "#f8fafc";
       ctx.font = "bold 16px 'Courier New', monospace";
       ctx.textAlign = "center";
@@ -1954,11 +1990,19 @@ export const SyncDualPlayer: React.FC = () => {
         let drawY = drop.sourceY * scaleY + LABEL_H;
         if (!isAcc) drawX += SIDE_W;
 
+        ctx.fillStyle = drop.hex;
         ctx.strokeStyle = "white";
         ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.arc(drawX, drawY, 8, 0, Math.PI * 2);
+        ctx.fill();
         ctx.stroke();
+
+        ctx.fillStyle = "rgba(15, 23, 42, 0.85)";
+        ctx.fillRect(drawX + 10, drawY - 12, 70, 20);
+        ctx.fillStyle = "white";
+        ctx.font = "bold 11px sans-serif";
+        ctx.fillText(drop.hex, drawX + 16, drawY + 2);
       });
 
       // Ruler overlay
@@ -2291,15 +2335,22 @@ export const SyncDualPlayer: React.FC = () => {
           }
           
           // Draw Eyedroppers
-          if (isEyedropperActive) {
+          if (eyedropperDrops.length > 0) {
             const dropsToRender = [...eyedropperDrops];
-            // Do not add hoverColor
             dropsToRender.filter(d => d.sourceVideo === sourceVideo).forEach(drop => {
+              fCtx.fillStyle = drop.hex;
               fCtx.strokeStyle = "white";
               fCtx.lineWidth = 2 * baseScale;
               fCtx.beginPath();
               fCtx.arc(drop.sourceX, drop.sourceY, 8 * baseScale, 0, 2 * Math.PI);
+              fCtx.fill();
               fCtx.stroke();
+
+              fCtx.fillStyle = "rgba(15, 23, 42, 0.85)";
+              fCtx.fillRect(drop.sourceX + 10 * baseScale, drop.sourceY - 12 * baseScale, 70 * baseScale, 20 * baseScale);
+              fCtx.fillStyle = "white";
+              fCtx.font = `bold ${Math.round(11 * baseScale)}px sans-serif`;
+              fCtx.fillText(drop.hex, drop.sourceX + 16 * baseScale, drop.sourceY + 2 * baseScale);
             });
           }
         }
@@ -3384,10 +3435,10 @@ export const SyncDualPlayer: React.FC = () => {
             <div>
               <input 
                 type="text"
-                value={isSinglePlayerMode ? t("videoPreviewInsp") : acceptanceCustomName}
+                value={acceptanceCustomName}
                 onChange={(e) => setAcceptanceCustomName(e.target.value)}
-                readOnly={isSinglePlayerMode}
-                className={`font-semibold bg-transparent border-b border-transparent focus:border-[#350F9C]/50 focus:outline-none focus:ring-0 px-0 py-0 m-0 ${isSinglePlayerMode ? 'text-[#350F9C] cursor-default' : 'text-gray-800 dark:text-gray-200 hover:bg-gray-200/50 dark:hover:bg-gray-700/50 transition-colors'}`}
+                placeholder={isSinglePlayerMode ? "Nazwa Wideo (Inspekcja)" : "ACCEPTANCE"}
+                className="font-semibold bg-transparent border-b border-transparent focus:border-[#350F9C]/50 focus:outline-none focus:ring-0 px-0 py-0 m-0 text-gray-800 dark:text-gray-200 hover:bg-gray-200/50 dark:hover:bg-gray-700/50 transition-colors"
                 style={{ width: '100%', minWidth: '150px' }}
               />
               {acceptanceFile && (
@@ -3506,7 +3557,7 @@ export const SyncDualPlayer: React.FC = () => {
               {Math.round((isMuted ? 0 : acceptanceVolume) * 100)}%
             </span>
             <div className="ml-2 pl-2 border-l border-gray-200 dark:border-gray-800 flex flex-col justify-center">
-              <span className="text-sm text-white font-mono font-medium leading-none mb-0.5">
+              <span className="text-sm text-gray-800 dark:text-white font-mono font-medium leading-none mb-0.5">
                 {formatTimecode(Math.max(0, (acceptanceVideoRef.current?.currentTime || 0) - acceptanceTrim))}
               </span>
               <span className="text-xs text-gray-400 font-mono leading-none">
@@ -3678,7 +3729,7 @@ export const SyncDualPlayer: React.FC = () => {
               {Math.round((isMuted ? 0 : emissionVolume) * 100)}%
             </span>
             <div className="ml-2 pl-2 border-l border-gray-200 dark:border-gray-800 flex flex-col justify-center">
-              <span className="text-sm text-white font-mono font-medium leading-none mb-0.5">
+              <span className="text-sm text-gray-800 dark:text-white font-mono font-medium leading-none mb-0.5">
                 {formatTimecode(Math.max(0, (emissionVideoRef.current?.currentTime || 0) - emissionTrim))}
               </span>
               <span className="text-xs text-gray-400 font-mono leading-none">
@@ -3776,14 +3827,14 @@ export const SyncDualPlayer: React.FC = () => {
             <button
               onClick={togglePlayPause}
               disabled={!acceptanceFile && !emissionFile}
-              className={`w-12 h-12 flex items-center justify-center text-white rounded-full transition-all shadow-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 ${
+              className={`w-12 h-12 flex items-center justify-center rounded-full transition-all shadow-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 ${
                 !acceptanceFile && !emissionFile
-                  ? "bg-gray-300 shadow-none cursor-not-allowed"
+                  ? "bg-gray-300 text-gray-500 shadow-none cursor-not-allowed"
                   : "bg-white hover:bg-gray-100 text-[#350F9C] shadow-black/10"
               }`}
               title={t("playPause")}
             >
-              {isPlaying ? <PauseIcon className="w-5 h-5" /> : <PlayIcon className="w-5 h-5 ml-0.5" />}
+              {isPlaying ? <PauseIcon className="w-5 h-5 text-[#350F9C]" /> : <PlayIcon className="w-5 h-5 ml-0.5 text-[#350F9C]" />}
             </button>
 
             {/* Step Forward */}
@@ -3879,7 +3930,7 @@ export const SyncDualPlayer: React.FC = () => {
             </button>
 
             {/* Report Builder Toggle */}
-            <div className="w-px h-6 bg-white/20 mx-2"></div>
+            <div className="w-px h-6 bg-white/25 mx-1.5"></div>
             <button
               onClick={() => handleCaptureReport()}
               disabled={capturingReport || (!acceptanceFile && !emissionFile)}
@@ -3904,7 +3955,7 @@ export const SyncDualPlayer: React.FC = () => {
               )}
             </button>
 
-            <div className="flex-1"></div>
+            <div className="w-px h-6 bg-white/25 mx-1.5"></div>
 
             {/* Analyze current frame (only visible in diff mode) */}
             {diffMode && (
@@ -3926,8 +3977,6 @@ export const SyncDualPlayer: React.FC = () => {
             >
               <ArrowPathIcon className="w-5 h-5" />
             </button>
-
-            <div className="h-6 w-px bg-gray-200 dark:bg-gray-800 mx-1"></div>
 
             {/* Clear Button */}
             <button
@@ -3992,16 +4041,16 @@ export const SyncDualPlayer: React.FC = () => {
                 <select 
                   value={ocrLanguage}
                   onChange={(e) => setOcrLanguage(e.target.value)}
-                  className="text-xs border-[#350F9C]/30 rounded px-2 py-1 bg-white dark:bg-[#121212] focus:ring-purple-500 text-purple-900 cursor-pointer"
+                  className="text-xs border border-gray-300 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-800 focus:ring-purple-500 text-gray-900 dark:text-gray-100 cursor-pointer"
                 >
-                  <option value="eng+pol">Auto (EN + PL)</option>
+                  <option value="eng+pol" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Auto (EN + PL)</option>
                   {Object.entries(LANGUAGE_TO_TESSERACT)
                     .map(([name, code]) => ({ name, code }))
                     .filter((val, index, self) => index === self.findIndex((t) => t.name === val.name))
                     .map(({ name, code }) => (
-                    <option key={name} value={code}>{name}</option>
+                    <option key={name} value={code} className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">{name}</option>
                   ))}
-                  <option value="custom">Other (ISO code)...</option>
+                  <option value="custom" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Other (ISO code)...</option>
                 </select>
                 {ocrLanguage === "custom" && (
                   <input
@@ -4057,7 +4106,7 @@ export const SyncDualPlayer: React.FC = () => {
                 <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Brief text</label>
                 {copydeckData && copydeckData.languages && copydeckData.languages.length > 0 && (
                   <select
-                    className="text-xs border-indigo-200 rounded px-2 py-1 bg-[#350F9C]/10 focus:ring-indigo-500 text-indigo-900 cursor-pointer"
+                    className="text-xs border border-gray-300 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-800 focus:ring-indigo-500 text-gray-900 dark:text-gray-100 cursor-pointer"
                     value={selectedCopydeckLanguage}
                     onChange={(e) => {
                       const lang = e.target.value;
@@ -4081,9 +4130,9 @@ export const SyncDualPlayer: React.FC = () => {
                       }
                     }}
                   >
-                    <option value="">-- Copydeck --</option>
+                    <option value="" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">-- Copydeck --</option>
                     {copydeckData.languages.map((l: string) => (
-                      <option key={l} value={l}>{l}</option>
+                      <option key={l} value={l} className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">{l}</option>
                     ))}
                   </select>
                 )}
@@ -4313,25 +4362,32 @@ export const SyncDualPlayer: React.FC = () => {
               ) : (
                 <div className="space-y-4">
                   {reportItems.map((item, index) => (
-                    <div key={item.id} className="bg-white dark:bg-[#121212] border border-gray-200 dark:border-gray-800 rounded-xl p-4 flex gap-4 shadow-sm relative group">
-                      <div className="flex-shrink-0 w-8 h-8 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center font-bold text-sm">
+                    <div key={item.id} className="bg-white dark:bg-[#121212] border border-gray-200 dark:border-gray-800 rounded-xl p-4 flex gap-4 shadow-sm relative group items-start">
+                      <div className="flex-shrink-0 w-8 h-8 rounded-full bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300 flex items-center justify-center font-bold text-sm">
                         {index + 1}
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
+                      <div className="flex-1 min-w-0 flex flex-col gap-2">
+                        <div className="flex items-center gap-2">
                           <span className="font-semibold text-gray-800 dark:text-gray-200 text-sm">Zrzut z {item.timecode.toFixed(3)}s</span>
                           <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-gray-100 dark:bg-[#1A1A1A] text-gray-600 dark:text-gray-400 uppercase">
                             {item.type}
                           </span>
                         </div>
-                        {item.comment && (
-                          <p className="text-sm text-gray-600 dark:text-gray-400 italic break-words">{item.comment}</p>
-                        )}
+                        <input
+                          type="text"
+                          value={item.comment || ""}
+                          onChange={(e) => {
+                            const newComment = e.target.value;
+                            setReportItems(prev => prev.map(i => i.id === item.id ? { ...i, comment: newComment } : i));
+                          }}
+                          placeholder="Dodaj / edytuj komentarz do tego zrzutu..."
+                          className="w-full text-xs p-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-[#1A1A1A] text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                        />
                       </div>
                       <button
                         onClick={() => setReportItems(reportItems.filter(i => i.id !== item.id))}
-                        className="opacity-0 group-hover:opacity-100 absolute top-4 right-4 text-red-400 hover:text-red-600 transition-all"
-                        title="Remove from report"
+                        className="text-red-400 hover:text-red-600 transition-all p-1 self-start"
+                        title="Usuń z raportu"
                       >
                         <XMarkIcon className="w-5 h-5" />
                       </button>
