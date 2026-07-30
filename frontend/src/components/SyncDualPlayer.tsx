@@ -31,6 +31,25 @@ const RulerIcon = ({ className }: { className?: string }) => (
   </svg>
 );
 
+const ShapeIcon = ({ className }: { className?: string }) => (
+  <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 7.5A2.25 2.25 0 017.5 5.25h9a2.25 2.25 0 012.25 2.25v9a2.25 2.25 0 01-2.25 2.25h-9a2.25 2.25 0 01-2.25-2.25v-9z" />
+    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v6m-3-3h6" />
+  </svg>
+);
+
+export type ShapeType = "arrow" | "circle" | "rectangle";
+export interface VideoShape {
+  id: string;
+  type: ShapeType;
+  startX: number;
+  startY: number;
+  endX: number;
+  endY: number;
+  sourceVideo: "acceptance" | "emission";
+  color: string;
+}
+
 interface RulerLine {
   startX: number;
   startY: number;
@@ -261,6 +280,25 @@ export const SyncDualPlayer: React.FC = () => {
   const [rulerLines, setRulerLines] = useState<RulerLine[]>([]);
   const [activeRulerLine, setActiveRulerLine] = useState<RulerLine | null>(null);
   const [rulerStartPoint, setRulerStartPoint] = useState<{x: number, y: number, video: "acceptance"|"emission"} | null>(null);
+
+  // Shape Annotation States
+  const [isShapeToolActive, setIsShapeToolActive] = useState(false);
+  const [activeShapeType, setActiveShapeType] = useState<ShapeType>("arrow");
+  const [shapeColor, setShapeColor] = useState("#ef4444"); // Default red as requested
+  const [shapeLines, setShapeLines] = useState<VideoShape[]>([]);
+  const [activeShape, setActiveShape] = useState<VideoShape | null>(null);
+  const [selectedShapeId, setSelectedShapeId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.key === "Delete" || e.key === "Backspace") && selectedShapeId) {
+        setShapeLines(prev => prev.filter(s => s.id !== selectedShapeId));
+        setSelectedShapeId(null);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectedShapeId]);
 
   // ── Interaction States ────────────────────────────────────────────────────
   type DragHandleState = {
@@ -1247,6 +1285,24 @@ export const SyncDualPlayer: React.FC = () => {
         // ignore
       }
     }
+
+    if (isShapeToolActive) {
+      const coords = getMouseSourceCoordinates(e.clientX, e.clientY, videoRef);
+      if (!coords) return;
+      const sourceVideo = videoRef === acceptanceVideoRef ? "acceptance" : "emission";
+      
+      setActiveShape({
+        id: Date.now().toString() + Math.random().toString(36).substring(2, 5),
+        type: activeShapeType,
+        startX: coords.sourceX,
+        startY: coords.sourceY,
+        endX: coords.sourceX,
+        endY: coords.sourceY,
+        sourceVideo,
+        color: shapeColor
+      });
+      return;
+    }
   };
 
   const handleVideoMouseMove = (e: React.MouseEvent<HTMLVideoElement>, videoRef: React.RefObject<HTMLVideoElement | null>) => {
@@ -1291,6 +1347,29 @@ export const SyncDualPlayer: React.FC = () => {
       }
       return;
     }
+
+    if (isShapeToolActive && activeShape && !isPlaying) {
+      const sourceVideo = videoRef === acceptanceVideoRef ? "acceptance" : "emission";
+      if (activeShape.sourceVideo === sourceVideo) {
+        const coords = getMouseSourceCoordinates(e.clientX, e.clientY, videoRef);
+        if (coords) {
+          let endX = coords.sourceX;
+          let endY = coords.sourceY;
+          if (e.shiftKey) {
+            const dx = coords.sourceX - activeShape.startX;
+            const dy = coords.sourceY - activeShape.startY;
+            const dist = Math.max(Math.abs(dx), Math.abs(dy));
+            endX = activeShape.startX + Math.sign(dx || 1) * dist;
+            endY = activeShape.startY + Math.sign(dy || 1) * dist;
+          }
+          setActiveShape({
+            ...activeShape,
+            endX,
+            endY
+          });
+        }
+      }
+    }
   };
 
   const handleVideoMouseUp = () => {
@@ -1304,6 +1383,15 @@ export const SyncDualPlayer: React.FC = () => {
       } else {
         setActiveRulerLine(null);
       }
+    }
+
+    if (isShapeToolActive && activeShape) {
+      const dist = Math.sqrt(Math.pow(activeShape.endX - activeShape.startX, 2) + Math.pow(activeShape.endY - activeShape.startY, 2));
+      if (dist > 5) {
+        setShapeLines(prev => [...prev, activeShape]);
+        setSelectedShapeId(activeShape.id);
+      }
+      setActiveShape(null);
     }
     
     if (isOcrActive && activeOcrBox) {
@@ -1978,7 +2066,7 @@ export const SyncDualPlayer: React.FC = () => {
         ctx.fillText("Do sprawdzenia", canvas.width - 178, canvas.height - 14);
       }
 
-      // Eyedropper overlays (pinned drops)
+      // Eyedropper overlays (pinned drops - extra large and bold for report clarity)
       const dropsToRender = [...eyedropperDrops];
 
       dropsToRender.forEach((drop) => {
@@ -1990,19 +2078,100 @@ export const SyncDualPlayer: React.FC = () => {
         let drawY = drop.sourceY * scaleY + LABEL_H;
         if (!isAcc) drawX += SIDE_W;
 
-        ctx.fillStyle = drop.hex;
-        ctx.strokeStyle = "white";
-        ctx.lineWidth = 2;
+        // Outer dark shadow ring for high contrast
+        ctx.strokeStyle = "rgba(0, 0, 0, 0.6)";
+        ctx.lineWidth = 4;
         ctx.beginPath();
-        ctx.arc(drawX, drawY, 8, 0, Math.PI * 2);
+        ctx.arc(drawX, drawY, 18, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Inner bright white ring & color fill
+        ctx.fillStyle = drop.hex;
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(drawX, drawY, 16, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
 
-        ctx.fillStyle = "rgba(15, 23, 42, 0.85)";
-        ctx.fillRect(drawX + 10, drawY - 12, 70, 20);
-        ctx.fillStyle = "white";
-        ctx.font = "bold 11px sans-serif";
-        ctx.fillText(drop.hex, drawX + 16, drawY + 2);
+        // Large high-contrast HEX Badge tag
+        const badgeW = 120;
+        const badgeH = 36;
+        const badgeX = drawX + 24;
+        const badgeY = drawY - 18;
+
+        ctx.fillStyle = "#0f172a";
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 2;
+        ctx.fillRect(badgeX, badgeY, badgeW, badgeH);
+        ctx.strokeRect(badgeX, badgeY, badgeW, badgeH);
+
+        // Color dot preview inside badge
+        ctx.fillStyle = drop.hex;
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(badgeX + 18, badgeY + 18, 9, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        // HEX Code Text
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "bold 15px 'Courier New', monospace";
+        ctx.textAlign = "left";
+        ctx.textBaseline = "middle";
+        ctx.fillText(drop.hex, badgeX + 34, badgeY + 19);
+      });
+
+      // Shapes overlay
+      shapeLines.forEach((shape) => {
+        const isAcc = shape.sourceVideo === "acceptance";
+        const scaleX = SIDE_W / (isAcc ? accVideo.videoWidth : (emiVideo?.videoWidth || 1));
+        const scaleY = SIDE_H / (isAcc ? accVideo.videoHeight : (emiVideo?.videoHeight || 1));
+        
+        let startX = shape.startX * scaleX;
+        let startY = shape.startY * scaleY + LABEL_H;
+        let endX = shape.endX * scaleX;
+        let endY = shape.endY * scaleY + LABEL_H;
+        if (!isAcc) {
+          startX += SIDE_W;
+          endX += SIDE_W;
+        }
+
+        ctx.strokeStyle = shape.color;
+        ctx.fillStyle = shape.color;
+        ctx.lineWidth = 3;
+
+        if (shape.type === "arrow") {
+          ctx.beginPath();
+          ctx.moveTo(startX, startY);
+          ctx.lineTo(endX, endY);
+          ctx.stroke();
+
+          const angle = Math.atan2(endY - startY, endX - startX);
+          const arrowLen = 14;
+          const arrowAngle = Math.PI / 6;
+          ctx.beginPath();
+          ctx.moveTo(endX, endY);
+          ctx.lineTo(endX - arrowLen * Math.cos(angle - arrowAngle), endY - arrowLen * Math.sin(angle - arrowAngle));
+          ctx.lineTo(endX - arrowLen * Math.cos(angle + arrowAngle), endY - arrowLen * Math.sin(angle + arrowAngle));
+          ctx.closePath();
+          ctx.fill();
+        } else if (shape.type === "circle") {
+          const cx = (startX + endX) / 2;
+          const cy = (startY + endY) / 2;
+          const rx = Math.abs(endX - startX) / 2;
+          const ry = Math.abs(endY - startY) / 2;
+          ctx.beginPath();
+          ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+          ctx.stroke();
+        } else if (shape.type === "rectangle") {
+          const x = Math.min(startX, endX);
+          const y = Math.min(startY, endY);
+          const w = Math.abs(endX - startX);
+          const h = Math.abs(endY - startY);
+          ctx.strokeRect(x, y, w, h);
+        }
       });
 
       // Ruler overlay
@@ -2334,23 +2503,93 @@ export const SyncDualPlayer: React.FC = () => {
             });
           }
           
-          // Draw Eyedroppers
+          // Draw Eyedroppers (extra large & bold for PDF report clarity)
           if (eyedropperDrops.length > 0) {
             const dropsToRender = [...eyedropperDrops];
             dropsToRender.filter(d => d.sourceVideo === sourceVideo).forEach(drop => {
-              fCtx.fillStyle = drop.hex;
-              fCtx.strokeStyle = "white";
-              fCtx.lineWidth = 2 * baseScale;
+              // Outer shadow ring
+              fCtx.strokeStyle = "rgba(0, 0, 0, 0.6)";
+              fCtx.lineWidth = 4 * baseScale;
               fCtx.beginPath();
-              fCtx.arc(drop.sourceX, drop.sourceY, 8 * baseScale, 0, 2 * Math.PI);
+              fCtx.arc(drop.sourceX, drop.sourceY, 18 * baseScale, 0, 2 * Math.PI);
+              fCtx.stroke();
+
+              // Inner white ring & color fill
+              fCtx.fillStyle = drop.hex;
+              fCtx.strokeStyle = "#ffffff";
+              fCtx.lineWidth = 3 * baseScale;
+              fCtx.beginPath();
+              fCtx.arc(drop.sourceX, drop.sourceY, 16 * baseScale, 0, 2 * Math.PI);
               fCtx.fill();
               fCtx.stroke();
 
-              fCtx.fillStyle = "rgba(15, 23, 42, 0.85)";
-              fCtx.fillRect(drop.sourceX + 10 * baseScale, drop.sourceY - 12 * baseScale, 70 * baseScale, 20 * baseScale);
-              fCtx.fillStyle = "white";
-              fCtx.font = `bold ${Math.round(11 * baseScale)}px sans-serif`;
-              fCtx.fillText(drop.hex, drop.sourceX + 16 * baseScale, drop.sourceY + 2 * baseScale);
+              // Large HEX badge tag box
+              const badgeW = 120 * baseScale;
+              const badgeH = 36 * baseScale;
+              const badgeX = drop.sourceX + 24 * baseScale;
+              const badgeY = drop.sourceY - 18 * baseScale;
+
+              fCtx.fillStyle = "#0f172a";
+              fCtx.strokeStyle = "#ffffff";
+              fCtx.lineWidth = 2 * baseScale;
+              fCtx.fillRect(badgeX, badgeY, badgeW, badgeH);
+              fCtx.strokeRect(badgeX, badgeY, badgeW, badgeH);
+
+              // Color preview dot inside badge
+              fCtx.fillStyle = drop.hex;
+              fCtx.strokeStyle = "#ffffff";
+              fCtx.lineWidth = 1.5 * baseScale;
+              fCtx.beginPath();
+              fCtx.arc(badgeX + 18 * baseScale, badgeY + 18 * baseScale, 9 * baseScale, 0, 2 * Math.PI);
+              fCtx.fill();
+              fCtx.stroke();
+
+              // HEX Code text
+              fCtx.fillStyle = "#ffffff";
+              fCtx.font = `bold ${Math.round(15 * baseScale)}px 'Courier New', monospace`;
+              fCtx.textAlign = "left";
+              fCtx.textBaseline = "middle";
+              fCtx.fillText(drop.hex, badgeX + 34 * baseScale, badgeY + 19 * baseScale);
+            });
+          }
+
+          // Draw Shapes
+          if (shapeLines.length > 0) {
+            shapeLines.filter(s => s.sourceVideo === sourceVideo).forEach(shape => {
+              fCtx.strokeStyle = shape.color;
+              fCtx.fillStyle = shape.color;
+              fCtx.lineWidth = 3 * baseScale;
+
+              if (shape.type === "arrow") {
+                fCtx.beginPath();
+                fCtx.moveTo(shape.startX, shape.startY);
+                fCtx.lineTo(shape.endX, shape.endY);
+                fCtx.stroke();
+
+                const angle = Math.atan2(shape.endY - shape.startY, shape.endX - shape.startX);
+                const arrowLen = 14 * baseScale;
+                const arrowAngle = Math.PI / 6;
+                fCtx.beginPath();
+                fCtx.moveTo(shape.endX, shape.endY);
+                fCtx.lineTo(shape.endX - arrowLen * Math.cos(angle - arrowAngle), shape.endY - arrowLen * Math.sin(angle - arrowAngle));
+                fCtx.lineTo(shape.endX - arrowLen * Math.cos(angle + arrowAngle), shape.endY - arrowLen * Math.sin(angle + arrowAngle));
+                fCtx.closePath();
+                fCtx.fill();
+              } else if (shape.type === "circle") {
+                const cx = (shape.startX + shape.endX) / 2;
+                const cy = (shape.startY + shape.endY) / 2;
+                const rx = Math.abs(shape.endX - shape.startX) / 2;
+                const ry = Math.abs(shape.endY - shape.startY) / 2;
+                fCtx.beginPath();
+                fCtx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+                fCtx.stroke();
+              } else if (shape.type === "rectangle") {
+                const x = Math.min(shape.startX, shape.endX);
+                const y = Math.min(shape.startY, shape.endY);
+                const w = Math.abs(shape.endX - shape.startX);
+                const h = Math.abs(shape.endY - shape.startY);
+                fCtx.strokeRect(x, y, w, h);
+              }
             });
           }
         }
@@ -2434,40 +2673,24 @@ export const SyncDualPlayer: React.FC = () => {
     }
 
     setPendingReportItem({
-        id: Date.now().toString(),
-        timecode: currentTime,
-        type: isSinglePlayerMode ? "single" : "unified",
-        comment: "",
-        acceptanceImage,
-        emissionImage,
-        diffImage,
-        ocrPanelImage,
-        ocrTextAcceptance: isOcrActive ? ocrTextAcceptance : undefined,
-        ocrTextEmission: (isOcrActive && !isSinglePlayerMode) ? ocrTextEmission : undefined,
-        ocrBriefText: isOcrActive ? ocrBriefText : undefined,
-      });
+      id: Date.now().toString(),
+      timecode: currentTime,
+      type: isSinglePlayerMode ? "single" : "unified",
+      comment: "",
+      acceptanceImage,
+      emissionImage,
+      diffImage,
+      ocrPanelImage,
+      ocrTextAcceptance: isOcrActive ? ocrTextAcceptance : undefined,
+      ocrTextEmission: (isOcrActive && !isSinglePlayerMode) ? ocrTextEmission : undefined,
+      ocrBriefText: isOcrActive ? ocrBriefText : undefined,
+    });
     setCapturingReport(false);
-  };
-
-  const removeAccents = (str: string) => {
-    if (!str) return "";
-    return str
-      .replace(/ą/g, 'a').replace(/Ą/g, 'A')
-      .replace(/ć/g, 'c').replace(/Ć/g, 'C')
-      .replace(/ę/g, 'e').replace(/Ę/g, 'E')
-      .replace(/ł/g, 'l').replace(/Ł/g, 'L')
-      .replace(/ń/g, 'n').replace(/Ń/g, 'N')
-      .replace(/ó/g, 'o').replace(/Ó/g, 'O')
-      .replace(/ś/g, 's').replace(/Ś/g, 'S')
-      .replace(/ź/g, 'z').replace(/Ź/g, 'Z')
-      .replace(/ż/g, 'z').replace(/Ż/g, 'Z')
-      .normalize("NFD").replace(/[\u0300-\u036f]/g, "");
   };
 
   const generatePDF = () => {
     const doc = new jsPDF();
     
-    // Add custom font for Polish characters
     try {
       doc.addFileToVFS("Roboto-Regular.ttf", robotoBase64);
       doc.addFont("Roboto-Regular.ttf", "Roboto", "normal");
@@ -2476,7 +2699,31 @@ export const SyncDualPlayer: React.FC = () => {
       console.error("Failed to load Roboto font, falling back to helvetica", e);
       doc.setFont("helvetica", "normal");
     }
-    
+
+    const fontName = doc.getFontList()['Roboto'] ? "Roboto" : "helvetica";
+    const isEn = language === "en";
+
+    const strings = {
+      reportTitle: isEn ? "QA INSPECTION REPORT" : "RAPORT INSPEKCJI QA",
+      generatedOn: isEn ? "Generated on:" : "Data wygenerowania:",
+      playerMode: isEn ? "Player Mode:" : "Tryb odtwarzacza:",
+      singlePlayer: isEn ? "Single Player (Inspection)" : "Pojedynczy (Inspekcja)",
+      dualPlayer: isEn ? "Dual Player (Acceptance vs Emission)" : "Podwójny (Akceptacja vs Emisja)",
+      totalScreenshots: isEn ? "Total Screenshots:" : "Liczba zrzutów w raporcie:",
+      accVideo: acceptanceCustomName || (isEn ? "Acceptance Video" : "Wideo Akceptacji"),
+      emiVideo: emissionCustomName || (isEn ? "Emission Video" : "Wideo Emisji"),
+      screenshotHeader: isEn ? "Screenshot #" : "Zrzut ekranu #",
+      timecode: isEn ? "Timecode:" : "Czas wideo:",
+      type: isEn ? "Type:" : "Typ:",
+      comment: isEn ? "Comments / Notes:" : "Komentarz / Uwagi:",
+      singleVideoLabel: isEn ? "Video Inspection:" : "Inspekcja Wideo:",
+      diffLabel: isEn ? "Difference View (Overlay):" : "Porównanie / Różnice (Overlay):",
+      ocrPanelLabel: isEn ? "OCR Panel & Results:" : "Wyniki i Różnice OCR (Zrzut Panelu):",
+      ocrTextDiffLabel: isEn ? "OCR Text Differences:" : "Odczyt OCR i Różnice Tekstu:",
+      page: isEn ? "Page" : "Strona",
+      of: isEn ? "of" : "z"
+    };
+
     const getScaledDim = (imgData: string, maxW: number, maxH: number) => {
       try {
         const props = doc.getImageProperties(imgData);
@@ -2493,170 +2740,210 @@ export const SyncDualPlayer: React.FC = () => {
       }
     };
 
-    doc.setFont(doc.getFontList()['Roboto'] ? "Roboto" : "helvetica", "normal");
-    doc.setFontSize(20);
-    doc.text("QA Report - Sync DualPlayer", 20, 20);
-    
-    doc.setFontSize(10);
-    doc.text(`Data wygenerowania: ${new Date().toLocaleString()}`, 20, 30);
-    if (acceptanceFile) doc.text(`${acceptanceCustomName}: ${acceptanceFile.name}`, 20, 38);
-    if (emissionFile) doc.text(`${emissionCustomName}: ${emissionFile.name}`, 20, 44);
+    doc.setFillColor(30, 27, 75);
+    doc.rect(0, 0, 210, 26, "F");
 
-    let yOffset = 55;
-    
+    doc.setFont(fontName, "bold");
+    doc.setFontSize(15);
+    doc.setTextColor(255, 255, 255);
+    doc.text(strings.reportTitle, 15, 14);
+
+    doc.setFont(fontName, "normal");
+    doc.setFontSize(8.5);
+    doc.setTextColor(199, 210, 254);
+    doc.text("SYNC DUALPLAYER • HIGH PRECISION QA AUTOMATION", 15, 21);
+
+    doc.setFillColor(79, 70, 229);
+    doc.rect(0, 26, 210, 2, "F");
+
+    doc.setFillColor(248, 250, 252);
+    doc.setDrawColor(226, 232, 240);
+    doc.roundedRect(15, 33, 180, 26, 3, 3, "FD");
+
+    doc.setFont(fontName, "bold");
+    doc.setFontSize(8.5);
+    doc.setTextColor(30, 41, 59);
+    doc.text(`${strings.generatedOn} ${new Date().toLocaleString()}`, 20, 40);
+    doc.text(`${strings.playerMode} ${isSinglePlayerMode ? strings.singlePlayer : strings.dualPlayer}`, 115, 40);
+
+    doc.setDrawColor(226, 232, 240);
+    doc.line(20, 44, 190, 44);
+
+    doc.setFont(fontName, "normal");
+    doc.setFontSize(8);
+    doc.setTextColor(71, 85, 105);
+    doc.text(`${strings.accVideo}: ${acceptanceFile?.name || (isEn ? "Not loaded" : "Brak")}`, 20, 50);
+    if (!isSinglePlayerMode) {
+      doc.text(`${strings.emiVideo}: ${emissionFile?.name || (isEn ? "Not loaded" : "Brak")}`, 115, 50);
+    }
+    doc.text(`${strings.totalScreenshots} ${reportItems.length}`, !isSinglePlayerMode ? 20 : 115, 55);
+
+    let yOffset = 66;
+
     reportItems.forEach((item, index) => {
-      // Add new page if we are near the bottom
-      if (yOffset > 220) {
+      if (yOffset > 230) {
         doc.addPage();
         yOffset = 20;
       }
       
-      // Header for item
-      doc.setFillColor(243, 244, 246);
-      doc.rect(20, yOffset - 5, 170, 8, "F");
-      doc.setFont(doc.getFontList()['Roboto'] ? "Roboto" : "helvetica", "normal");
-      doc.setFontSize(12);
-      doc.setTextColor(31, 41, 55);
-      doc.text(`Zrzut #${index + 1} - Video time: ${item.timecode.toFixed(3)}s [Typ: ${item.type.toUpperCase()}]`, 22, yOffset);
-      yOffset += 10;
-      
-      // Comment
+      doc.setFillColor(241, 245, 249);
+      doc.setDrawColor(203, 213, 225);
+      doc.roundedRect(15, yOffset, 180, 8, 2, 2, "FD");
+
+      doc.setFont(fontName, "bold");
       doc.setFontSize(10);
+      doc.setTextColor(30, 27, 75);
+      doc.text(`${strings.screenshotHeader}${index + 1}   •   ${strings.timecode} ${item.timecode.toFixed(3)}s   •   ${strings.type} ${item.type.toUpperCase()}`, 20, yOffset + 5.5);
+      yOffset += 12;
+      
       if (item.comment) {
-        const lines = doc.splitTextToSize(`Komentarz: ${item.comment}`, 160);
-        doc.text(lines, 20, yOffset);
-        yOffset += (lines.length * 5) + 5;
+        doc.setFillColor(254, 252, 232);
+        doc.setDrawColor(254, 240, 138);
+        const lines = doc.splitTextToSize(`${strings.comment} ${item.comment}`, 172);
+        const boxH = Math.max(8, lines.length * 4.5 + 4);
+        doc.roundedRect(15, yOffset - 2, 180, boxH, 2, 2, "FD");
+        
+        doc.setFillColor(234, 179, 8);
+        doc.rect(15, yOffset - 2, 3, boxH, "F");
+
+        doc.setFont(fontName, "normal");
+        doc.setFontSize(8.5);
+        doc.setTextColor(113, 63, 18);
+        doc.text(lines, 21, yOffset + 3);
+        yOffset += boxH + 6;
       }
 
       if (item.type === "visual" || item.type === "unified" || item.type === "single") {
         let hasVideoImages = false;
         if (item.type === "single" && item.acceptanceImage) {
           hasVideoImages = true;
-          doc.setFontSize(9);
-          doc.text("Video (Inspekcja):", 20, yOffset);
-          const dim = getScaledDim(item.acceptanceImage, 170, 95);
-          doc.addImage(item.acceptanceImage, "JPEG", 20 + (170 - dim.w) / 2, yOffset + 3, dim.w, dim.h);
-          yOffset += Math.max(105, dim.h + 10);
+          doc.setFont(fontName, "bold");
+          doc.setFontSize(8.5);
+          doc.setTextColor(51, 65, 85);
+          doc.text(strings.singleVideoLabel, 15, yOffset);
+          const dim = getScaledDim(item.acceptanceImage, 180, 95);
+          doc.addImage(item.acceptanceImage, "JPEG", 15 + (180 - dim.w) / 2, yOffset + 3, dim.w, dim.h);
+          yOffset += Math.max(100, dim.h + 8);
         } else {
           let h1 = 0, h2 = 0;
           if (item.acceptanceImage) {
             hasVideoImages = true;
-            doc.setFontSize(9);
-            doc.text(`${acceptanceCustomName}:`, 20, yOffset);
-            const dim1 = getScaledDim(item.acceptanceImage, 80, 45);
-            doc.addImage(item.acceptanceImage, "JPEG", 20 + (80 - dim1.w) / 2, yOffset + 3, dim1.w, dim1.h);
+            doc.setFont(fontName, "bold");
+            doc.setFontSize(8.5);
+            doc.setTextColor(51, 65, 85);
+            doc.text(`${strings.accVideo}:`, 15, yOffset);
+            const dim1 = getScaledDim(item.acceptanceImage, 86, 48);
+            doc.addImage(item.acceptanceImage, "JPEG", 15 + (86 - dim1.w) / 2, yOffset + 3, dim1.w, dim1.h);
             h1 = dim1.h;
           }
           if (item.emissionImage) {
             hasVideoImages = true;
-            doc.setFontSize(9);
-            doc.text(`${emissionCustomName}:`, 110, yOffset);
-            const dim2 = getScaledDim(item.emissionImage, 80, 45);
-            doc.addImage(item.emissionImage, "JPEG", 110 + (80 - dim2.w) / 2, yOffset + 3, dim2.w, dim2.h);
+            doc.setFont(fontName, "bold");
+            doc.setFontSize(8.5);
+            doc.setTextColor(51, 65, 85);
+            doc.text(`${strings.emiVideo}:`, 109, yOffset);
+            const dim2 = getScaledDim(item.emissionImage, 86, 48);
+            doc.addImage(item.emissionImage, "JPEG", 109 + (86 - dim2.w) / 2, yOffset + 3, dim2.w, dim2.h);
             h2 = dim2.h;
           }
-          if (hasVideoImages) yOffset += Math.max(55, Math.max(h1, h2) + 10);
+          if (hasVideoImages) yOffset += Math.max(56, Math.max(h1, h2) + 8);
         }
 
         if (item.diffImage) {
-          if (yOffset > 220) { doc.addPage(); yOffset = 20; }
-          doc.setFontSize(9);
-          doc.text("Wipe / Diff View (Overlay):", 20, yOffset);
-          const dim = getScaledDim(item.diffImage, 170, 95);
-          doc.addImage(item.diffImage, "JPEG", 20 + (170 - dim.w) / 2, yOffset + 3, dim.w, dim.h);
-          yOffset += Math.max(105, dim.h + 10);
+          if (yOffset > 210) { doc.addPage(); yOffset = 20; }
+          doc.setFont(fontName, "bold");
+          doc.setFontSize(8.5);
+          doc.setTextColor(51, 65, 85);
+          doc.text(strings.diffLabel, 15, yOffset);
+          const dim = getScaledDim(item.diffImage, 180, 95);
+          doc.addImage(item.diffImage, "JPEG", 15 + (180 - dim.w) / 2, yOffset + 3, dim.w, dim.h);
+          yOffset += Math.max(100, dim.h + 8);
         }
 
         if (item.ocrPanelImage) {
           if (yOffset > 180) { doc.addPage(); yOffset = 20; }
-          doc.setFontSize(9);
-          doc.text("Wyniki i Roznice OCR (Zrzut Panelu):", 20, yOffset);
-          const dim = getScaledDim(item.ocrPanelImage, 170, 100);
-          doc.addImage(item.ocrPanelImage, "JPEG", 20 + (170 - dim.w) / 2, yOffset + 3, dim.w, dim.h);
-          yOffset += Math.max(110, dim.h + 10);
+          doc.setFont(fontName, "bold");
+          doc.setFontSize(8.5);
+          doc.setTextColor(51, 65, 85);
+          doc.text(strings.ocrPanelLabel, 15, yOffset);
+          const dim = getScaledDim(item.ocrPanelImage, 180, 95);
+          doc.addImage(item.ocrPanelImage, "JPEG", 15 + (180 - dim.w) / 2, yOffset + 3, dim.w, dim.h);
+          yOffset += Math.max(100, dim.h + 8);
         }
 
         if (item.ocrTextAcceptance || item.ocrTextEmission) {
-          if (yOffset > 240) { doc.addPage(); yOffset = 20; }
+          if (yOffset > 230) { doc.addPage(); yOffset = 20; }
           
-          doc.setFontSize(10);
-          doc.setFont("helvetica", "bold");
-          doc.text("Odczyt OCR i Roznice Tekstu:", 20, yOffset);
+          doc.setFont(fontName, "bold");
+          doc.setFontSize(9);
+          doc.setTextColor(30, 27, 75);
+          doc.text(strings.ocrTextDiffLabel, 15, yOffset);
           yOffset += 6;
           
-          const accBase = item.ocrTextAcceptance || "None odczytu.";
-          const emBase = item.ocrTextEmission || "None odczytu.";
+          const accBase = item.ocrTextAcceptance || (isEn ? "No text detected." : "Brak odczytu.");
+          const emBase = item.ocrTextEmission || (isEn ? "No text detected." : "Brak odczytu.");
           const briefBase = item.ocrBriefText || accBase;
 
           const renderColoredDiff = (text1: string, text2: string, startX: number, startY: number, maxWidth: number) => {
             const parts = diffWords(text1, text2);
             let currentX = startX;
             let currentY = startY;
-            doc.setFontSize(9);
+            doc.setFontSize(8.5);
             
             parts.forEach(part => {
-              if (part.added) { doc.setTextColor(22, 163, 74); doc.setFont("helvetica", "bold"); }
-              else if (part.removed) { doc.setTextColor(220, 38, 38); doc.setFont("helvetica", "bold"); }
-              else { doc.setTextColor(55, 65, 81); doc.setFont("helvetica", "normal"); }
-              
-              const words = part.value.split(/(\s+)/);
-              words.forEach(word => {
-                if (!word) return;
-                if (word === '\n') {
-                  currentY += 5;
+              if (part.added) { doc.setTextColor(22, 163, 74); doc.setFont(fontName, "bold"); }
+              else if (part.removed) { doc.setTextColor(220, 38, 38); doc.setFont(fontName, "bold"); }
+              else { doc.setTextColor(55, 65, 81); doc.setFont(fontName, "normal"); }
+
+              const words = part.value.split(" ");
+              words.forEach((word, wIdx) => {
+                const wordWithSpace = wIdx < words.length - 1 ? word + " " : word;
+                const wordWidth = doc.getTextWidth(wordWithSpace);
+                
+                if (currentX + wordWidth > startX + maxWidth) {
                   currentX = startX;
-                  return;
+                  currentY += 4.5;
                 }
-                const cleanWord = removeAccents(word);
-                const w = doc.getTextWidth(cleanWord);
-                if (currentX + w > startX + maxWidth) {
-                  currentY += 5;
-                  currentX = startX;
-                  if (word.trim() === '') return;
-                }
-                doc.text(cleanWord, currentX, currentY);
-                currentX += w;
+                
+                doc.text(wordWithSpace, currentX, currentY);
+                currentX += wordWidth;
               });
             });
-            doc.setTextColor(31, 41, 55);
-            doc.setFont("helvetica", "normal");
-            return currentY + 7;
+            return currentY;
           };
 
-          if (item.type === "single") {
-            doc.setFontSize(9);
-            doc.setFont("helvetica", "normal");
-            doc.text("Video:", 20, yOffset);
-            yOffset += 4;
-            yOffset = renderColoredDiff(briefBase, accBase, 20, yOffset, 160);
-          } else {
-            doc.setFontSize(9);
-            doc.setFont("helvetica", "normal");
-            doc.text("Acceptance:", 20, yOffset);
-            yOffset += 4;
-            yOffset = renderColoredDiff(briefBase, accBase, 20, yOffset, 160);
-            
-            doc.setFont("helvetica", "normal");
-            doc.setTextColor(31, 41, 55);
-            doc.text("Emission:", 20, yOffset);
-            yOffset += 4;
-            yOffset = renderColoredDiff(briefBase, emBase, 20, yOffset, 160);
-            
-            if (item.ocrBriefText && item.ocrTextAcceptance && item.ocrTextEmission) {
-              doc.setFont("helvetica", "bold");
-              doc.setTextColor(31, 41, 55);
-              doc.text("Direct comparison (Acc vs Em):", 20, yOffset);
-              yOffset += 4;
-              yOffset = renderColoredDiff(accBase, emBase, 20, yOffset, 160);
-            }
-          }
+          doc.setFont(fontName, "bold");
+          doc.setFontSize(8);
+          doc.setTextColor(71, 85, 105);
+          doc.text(`${strings.accVideo} vs Brief:`, 15, yOffset);
+          let endY1 = renderColoredDiff(briefBase, accBase, 15, yOffset + 4, 85);
+          
+          doc.setFont(fontName, "bold");
+          doc.setFontSize(8);
+          doc.setTextColor(71, 85, 105);
+          doc.text(`${strings.emiVideo} vs Brief:`, 109, yOffset);
+          let endY2 = renderColoredDiff(briefBase, emBase, 109, yOffset + 4, 85);
+          
+          yOffset = Math.max(endY1, endY2) + 8;
         }
       }
-      
-      yOffset += 5;
+      yOffset += 6;
     });
 
-    doc.save("Raport_QA.pdf");
+    const totalPages = (doc as any).internal.getNumberOfPages();
+    for (let p = 1; p <= totalPages; p++) {
+      doc.setPage(p);
+      doc.setDrawColor(226, 232, 240);
+      doc.line(15, 282, 195, 282);
+
+      doc.setFont(fontName, "normal");
+      doc.setFontSize(8);
+      doc.setTextColor(148, 163, 184);
+      doc.text("Sync DualPlayer • QA Report", 15, 288);
+      doc.text(`${strings.page} ${p} ${strings.of} ${totalPages}`, 195, 288, { align: "right" });
+    }
+
+    doc.save(`QA_Report_${new Date().toISOString().slice(0, 10)}.pdf`);
   };
 
   const handleRunOcr = async () => {
@@ -2832,6 +3119,91 @@ export const SyncDualPlayer: React.FC = () => {
           );
         })}
       </div>
+    );
+  };
+
+  const renderShapesOverlay = (sourceVideo: "acceptance" | "emission", containerRef: React.RefObject<HTMLVideoElement | null>) => {
+    const shapesToRender = [...shapeLines];
+    if (activeShape && activeShape.sourceVideo === sourceVideo) shapesToRender.push(activeShape);
+
+    if (shapesToRender.filter(s => s.sourceVideo === sourceVideo).length === 0) return null;
+
+    const video = containerRef.current;
+    if (!video || video.readyState < 2) return null;
+
+    const rect = video.getBoundingClientRect();
+    const videoRatio = video.videoWidth / video.videoHeight;
+    const containerRatio = rect.width / rect.height;
+
+    let renderedWidth: number, renderedHeight: number, offsetX = 0, offsetY = 0;
+    if (containerRatio > videoRatio) {
+      renderedHeight = rect.height;
+      renderedWidth = rect.height * videoRatio;
+      offsetX = (rect.width - renderedWidth) / 2;
+    } else {
+      renderedWidth = rect.width;
+      renderedHeight = rect.width / videoRatio;
+      offsetY = (rect.height - renderedHeight) / 2;
+    }
+
+    const mapToScreen = (sx: number, sy: number) => ({
+      x: (sx / video.videoWidth) * renderedWidth + offsetX + video.offsetLeft,
+      y: (sy / video.videoHeight) * renderedHeight + offsetY + video.offsetTop
+    });
+
+    return (
+      <svg xmlns="http://www.w3.org/2000/svg" className="absolute top-0 left-0 w-full h-full pointer-events-none z-20">
+        {shapesToRender.filter(s => s.sourceVideo === sourceVideo).map((shape, i) => {
+          const start = mapToScreen(shape.startX, shape.startY);
+          const end = mapToScreen(shape.endX, shape.endY);
+          const isSelected = selectedShapeId === shape.id;
+
+          if (shape.type === "arrow") {
+            const angle = Math.atan2(end.y - start.y, end.x - start.x);
+            const arrowLen = 12;
+            const arrowAngle = Math.PI / 6;
+            const p1 = { x: end.x - arrowLen * Math.cos(angle - arrowAngle), y: end.y - arrowLen * Math.sin(angle - arrowAngle) };
+            const p2 = { x: end.x - arrowLen * Math.cos(angle + arrowAngle), y: end.y - arrowLen * Math.sin(angle + arrowAngle) };
+
+            return (
+              <g key={shape.id || i} className="pointer-events-auto cursor-pointer" onClick={(e) => { e.stopPropagation(); setSelectedShapeId(shape.id); }}>
+                <line x1={start.x} y1={start.y} x2={end.x} y2={end.y} stroke={shape.color} strokeWidth="3" />
+                <polygon points={`${end.x},${end.y} ${p1.x},${p1.y} ${p2.x},${p2.y}`} fill={shape.color} />
+                {isSelected && (
+                  <circle cx={end.x} cy={end.y} r="6" fill="white" stroke="#3b82f6" strokeWidth="2" />
+                )}
+              </g>
+            );
+          } else if (shape.type === "circle") {
+            const cx = (start.x + end.x) / 2;
+            const cy = (start.y + end.y) / 2;
+            const rx = Math.abs(end.x - start.x) / 2;
+            const ry = Math.abs(end.y - start.y) / 2;
+            return (
+              <g key={shape.id || i} className="pointer-events-auto cursor-pointer" onClick={(e) => { e.stopPropagation(); setSelectedShapeId(shape.id); }}>
+                <ellipse cx={cx} cy={cy} rx={rx} ry={ry} fill="none" stroke={shape.color} strokeWidth="3" />
+                {isSelected && (
+                  <rect x={cx - rx - 2} y={cy - ry - 2} width={rx * 2 + 4} height={ry * 2 + 4} fill="none" stroke="#3b82f6" strokeWidth="1" strokeDasharray="3 3" />
+                )}
+              </g>
+            );
+          } else if (shape.type === "rectangle") {
+            const x = Math.min(start.x, end.x);
+            const y = Math.min(start.y, end.y);
+            const w = Math.abs(end.x - start.x);
+            const h = Math.abs(end.y - start.y);
+            return (
+              <g key={shape.id || i} className="pointer-events-auto cursor-pointer" onClick={(e) => { e.stopPropagation(); setSelectedShapeId(shape.id); }}>
+                <rect x={x} y={y} width={w} height={h} fill="none" stroke={shape.color} strokeWidth="3" />
+                {isSelected && (
+                  <rect x={x - 2} y={y - 2} width={w + 4} height={h + 4} fill="none" stroke="#3b82f6" strokeWidth="1" strokeDasharray="3 3" />
+                )}
+              </g>
+            );
+          }
+          return null;
+        })}
+      </svg>
     );
   };
 
@@ -3497,7 +3869,7 @@ export const SyncDualPlayer: React.FC = () => {
             {acceptanceFile ? (
               <video
                 ref={acceptanceVideoRef}
-                className={`max-w-full h-auto max-h-[70vh] object-contain ${(isEyedropperActive || isRulerActive || isOcrActive) && !isPlaying ? "cursor-crosshair" : ""}`}
+                className={`max-w-full h-auto max-h-[70vh] object-contain ${(isEyedropperActive || isRulerActive || isOcrActive || isShapeToolActive) && !isPlaying ? "cursor-crosshair" : ""}`}
                 src={acceptanceFile.url}
                 crossOrigin="anonymous"
                 preload="auto"
@@ -3525,6 +3897,7 @@ export const SyncDualPlayer: React.FC = () => {
             {renderRulerOverlay("acceptance", acceptanceVideoRef)}
             {renderEyedropperOverlay("acceptance", acceptanceVideoRef)}
             {renderOcrBoxOverlay("acceptance", acceptanceVideoRef)}
+            {renderShapesOverlay("acceptance", acceptanceVideoRef)}
           </div>
 
           {/* Volume control */}
@@ -3669,7 +4042,7 @@ export const SyncDualPlayer: React.FC = () => {
             {emissionFile ? (
               <video
                 ref={emissionVideoRef}
-                className={`max-w-full h-auto max-h-[70vh] object-contain ${(isEyedropperActive || isRulerActive || isOcrActive) && !isPlaying ? "cursor-crosshair" : ""}`}
+                className={`max-w-full h-auto max-h-[70vh] object-contain ${(isEyedropperActive || isRulerActive || isOcrActive || isShapeToolActive) && !isPlaying ? "cursor-crosshair" : ""}`}
                 src={emissionFile.url}
                 crossOrigin="anonymous"
                 preload="auto"
@@ -3697,6 +4070,7 @@ export const SyncDualPlayer: React.FC = () => {
             {renderRulerOverlay("emission", emissionVideoRef)}
             {renderEyedropperOverlay("emission", emissionVideoRef)}
             {renderOcrBoxOverlay("emission", emissionVideoRef)}
+            {renderShapesOverlay("emission", emissionVideoRef)}
           </div>
 
           {/* Volume control */}
@@ -3912,6 +4286,70 @@ export const SyncDualPlayer: React.FC = () => {
                   className="w-6 h-6 p-0 border-0 rounded-full overflow-hidden cursor-pointer bg-transparent"
                   title="Select ruler color"
                 />
+              )}
+            </div>
+
+            {/* Shape Tool Toggle */}
+            <div className="relative">
+              <button
+                onClick={() => {
+                  setIsShapeToolActive(!isShapeToolActive);
+                  if (!isShapeToolActive) {
+                    setIsEyedropperActive(false);
+                    setIsRulerActive(false);
+                  }
+                }}
+                disabled={!acceptanceFile && !emissionFile}
+                className={`w-10 h-10 flex items-center justify-center rounded-xl transition-colors disabled:opacity-100 disabled:text-white ${
+                  isShapeToolActive 
+                    ? "bg-white text-[#4960E6]" 
+                    : "bg-[#4960E6] hover:bg-white hover:text-[#4960E6] text-white"
+                }`}
+                title="Narzędzie Kształtów (Strzałka, Kółko, Kwadrat)"
+              >
+                <ShapeIcon className="w-5 h-5" />
+              </button>
+              
+              {isShapeToolActive && (
+                <div className="absolute bottom-12 left-0 bg-white dark:bg-[#1A1A1A] p-2 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 flex items-center gap-1.5 z-30">
+                  <button
+                    onClick={() => setActiveShapeType("arrow")}
+                    className={`p-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 ${activeShapeType === "arrow" ? "bg-red-500 text-white" : "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200"}`}
+                    title="Strzałka"
+                  >
+                    ➔
+                  </button>
+                  <button
+                    onClick={() => setActiveShapeType("circle")}
+                    className={`p-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 ${activeShapeType === "circle" ? "bg-red-500 text-white" : "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200"}`}
+                    title="Kółko"
+                  >
+                    ⭕
+                  </button>
+                  <button
+                    onClick={() => setActiveShapeType("rectangle")}
+                    className={`p-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 ${activeShapeType === "rectangle" ? "bg-red-500 text-white" : "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200"}`}
+                    title="Kwadrat / Prostokąt"
+                  >
+                    🔲
+                  </button>
+                  <input
+                    type="color"
+                    value={shapeColor}
+                    onChange={(e) => setShapeColor(e.target.value)}
+                    className="w-6 h-6 p-0 border-0 rounded-full cursor-pointer bg-transparent"
+                    title="Wybierz kolor kształtu"
+                  />
+                  {shapeLines.length > 0 && (
+                    <button
+                      onClick={() => setShapeLines([])}
+                      className="p-1.5 rounded-lg text-xs text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30"
+                      title="Wyczyść kształty"
+                    >
+                      <XMarkIcon className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
               )}
             </div>
 
