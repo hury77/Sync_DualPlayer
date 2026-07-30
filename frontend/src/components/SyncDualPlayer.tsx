@@ -289,6 +289,7 @@ export const SyncDualPlayer: React.FC = () => {
   const [activeShapeType, setActiveShapeType] = useState<ShapeType>("arrow");
   const [shapeLines, setShapeLines] = useState<VideoShape[]>([]);
   const [activeShape, setActiveShape] = useState<VideoShape | null>(null);
+  const [shapeStartPoint, setShapeStartPoint] = useState<{x: number, y: number, video: "acceptance"|"emission"} | null>(null);
   const [selectedShapeId, setSelectedShapeId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -1228,9 +1229,9 @@ export const SyncDualPlayer: React.FC = () => {
     };
   }, [dragHandle]);
 
-  // Global window listener for smooth non-interrupted shape creation
+  // Global window listener for smooth non-interrupted shape creation (like ruler)
   useEffect(() => {
-    if (!activeShape) return;
+    if (!shapeStartPoint || !activeShape) return;
 
     const handleWindowMouseMove = (e: MouseEvent) => {
       const videoRef = activeShape.sourceVideo === "acceptance" ? acceptanceVideoRef : emissionVideoRef;
@@ -1239,34 +1240,21 @@ export const SyncDualPlayer: React.FC = () => {
         let endX = coords.sourceX;
         let endY = coords.sourceY;
         if (e.shiftKey) {
-          const dx = coords.sourceX - activeShape.startX;
-          const dy = coords.sourceY - activeShape.startY;
+          const dx = coords.sourceX - shapeStartPoint.x;
+          const dy = coords.sourceY - shapeStartPoint.y;
           const dist = Math.max(Math.abs(dx), Math.abs(dy));
-          endX = activeShape.startX + Math.sign(dx || 1) * dist;
-          endY = activeShape.startY + Math.sign(dy || 1) * dist;
+          endX = shapeStartPoint.x + Math.sign(dx || 1) * dist;
+          endY = shapeStartPoint.y + Math.sign(dy || 1) * dist;
         }
         setActiveShape(prev => prev ? { ...prev, endX, endY } : null);
       }
     };
 
-    const handleWindowMouseUp = () => {
-      if (activeShape) {
-        const dist = Math.sqrt(Math.pow(activeShape.endX - activeShape.startX, 2) + Math.pow(activeShape.endY - activeShape.startY, 2));
-        if (dist > 5) {
-          setShapeLines(prev => [...prev, activeShape]);
-          setSelectedShapeId(activeShape.id);
-        }
-        setActiveShape(null);
-      }
-    };
-
     window.addEventListener("mousemove", handleWindowMouseMove);
-    window.addEventListener("mouseup", handleWindowMouseUp);
     return () => {
       window.removeEventListener("mousemove", handleWindowMouseMove);
-      window.removeEventListener("mouseup", handleWindowMouseUp);
     };
-  }, [activeShape]);
+  }, [shapeStartPoint, activeShape]);
 
   const handleVideoMouseDown = (e: React.MouseEvent<HTMLVideoElement>, videoRef: React.RefObject<HTMLVideoElement | null>) => {
     if (isPlaying) return;
@@ -1364,17 +1352,52 @@ export const SyncDualPlayer: React.FC = () => {
       const coords = getMouseSourceCoordinates(e.clientX, e.clientY, videoRef);
       if (!coords) return;
       const sourceVideo = videoRef === acceptanceVideoRef ? "acceptance" : "emission";
-      
-      setActiveShape({
-        id: Date.now().toString() + Math.random().toString(36).substring(2, 5),
-        type: activeShapeType,
-        startX: coords.sourceX,
-        startY: coords.sourceY,
-        endX: coords.sourceX,
-        endY: coords.sourceY,
-        sourceVideo,
-        color: shapeColor
-      });
+
+      if (shapeStartPoint && shapeStartPoint.video === sourceVideo) {
+        // Second click: finalize shape (like ruler)
+        const dx = coords.sourceX - shapeStartPoint.x;
+        const dy = coords.sourceY - shapeStartPoint.y;
+        let endX = coords.sourceX;
+        let endY = coords.sourceY;
+        if (e.shiftKey) {
+          const dist = Math.max(Math.abs(dx), Math.abs(dy));
+          endX = shapeStartPoint.x + Math.sign(dx || 1) * dist;
+          endY = shapeStartPoint.y + Math.sign(dy || 1) * dist;
+        }
+
+        if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+          const newShape: VideoShape = {
+            id: Date.now().toString() + Math.random().toString(36).substring(2, 5),
+            type: activeShapeType,
+            startX: shapeStartPoint.x,
+            startY: shapeStartPoint.y,
+            endX,
+            endY,
+            sourceVideo,
+            color: shapeColor
+          };
+          setShapeLines(prev => [...prev, newShape]);
+          setSelectedShapeId(newShape.id);
+        }
+        setShapeStartPoint(null);
+        setActiveShape(null);
+      } else {
+        // First click: set start point and active preview (like ruler)
+        if (activeShape && shapeStartPoint && (Math.abs(activeShape.endX - shapeStartPoint.x) > 5 || Math.abs(activeShape.endY - shapeStartPoint.y) > 5)) {
+          setShapeLines(prev => [...prev, activeShape]);
+        }
+        setShapeStartPoint({ x: coords.sourceX, y: coords.sourceY, video: sourceVideo });
+        setActiveShape({
+          id: Date.now().toString() + Math.random().toString(36).substring(2, 5),
+          type: activeShapeType,
+          startX: coords.sourceX,
+          startY: coords.sourceY,
+          endX: coords.sourceX,
+          endY: coords.sourceY,
+          sourceVideo,
+          color: shapeColor
+        });
+      }
       return;
     }
   };
@@ -4472,7 +4495,12 @@ export const SyncDualPlayer: React.FC = () => {
                 <div className="flex items-center gap-1 px-1">
                   <button
                     type="button"
-                    onClick={(e) => { e.stopPropagation(); setActiveShapeType("arrow"); }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveShapeType("arrow");
+                      setShapeStartPoint(null);
+                      setActiveShape(null);
+                    }}
                     className={`w-8 h-8 rounded-lg text-xs font-bold flex items-center justify-center transition-all ${
                       activeShapeType === "arrow" ? "bg-red-500 text-white shadow-sm ring-2 ring-white/50" : "bg-white/20 text-white hover:bg-white/30"
                     }`}
@@ -4482,7 +4510,12 @@ export const SyncDualPlayer: React.FC = () => {
                   </button>
                   <button
                     type="button"
-                    onClick={(e) => { e.stopPropagation(); setActiveShapeType("circle"); }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveShapeType("circle");
+                      setShapeStartPoint(null);
+                      setActiveShape(null);
+                    }}
                     className={`w-8 h-8 rounded-lg text-xs font-bold flex items-center justify-center transition-all ${
                       activeShapeType === "circle" ? "bg-red-500 text-white shadow-sm ring-2 ring-white/50" : "bg-white/20 text-white hover:bg-white/30"
                     }`}
@@ -4492,7 +4525,12 @@ export const SyncDualPlayer: React.FC = () => {
                   </button>
                   <button
                     type="button"
-                    onClick={(e) => { e.stopPropagation(); setActiveShapeType("rectangle"); }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveShapeType("rectangle");
+                      setShapeStartPoint(null);
+                      setActiveShape(null);
+                    }}
                     className={`w-8 h-8 rounded-lg text-xs font-bold flex items-center justify-center transition-all ${
                       activeShapeType === "rectangle" ? "bg-red-500 text-white shadow-sm ring-2 ring-white/50" : "bg-white/20 text-white hover:bg-white/30"
                     }`}
