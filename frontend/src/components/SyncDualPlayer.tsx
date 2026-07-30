@@ -38,7 +38,7 @@ const ShapeIcon = ({ className }: { className?: string }) => (
   </svg>
 );
 
-export type ShapeType = "arrow" | "circle" | "rectangle" | "text";
+export type ShapeType = "arrow" | "circle" | "rectangle" | "text" | "pointer";
 export interface VideoShape {
   id: string;
   type: ShapeType;
@@ -49,6 +49,7 @@ export interface VideoShape {
   sourceVideo: "acceptance" | "emission";
   color: string;
   text?: string;
+  fontSize?: number;
 }
 
 interface RulerLine {
@@ -293,6 +294,7 @@ export const SyncDualPlayer: React.FC = () => {
   const [activeShape, setActiveShape] = useState<VideoShape | null>(null);
   const [shapeStartPoint, setShapeStartPoint] = useState<{x: number, y: number, video: "acceptance"|"emission"} | null>(null);
   const [selectedShapeId, setSelectedShapeId] = useState<string | null>(null);
+  const [annotationFontSize, setAnnotationFontSize] = useState<number>(16);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -1371,6 +1373,12 @@ export const SyncDualPlayer: React.FC = () => {
       const target = e.target as HTMLElement;
       if (target.tagName !== "VIDEO") return;
 
+      // Pointer tool: only select/deselect shapes, never create new ones
+      if (activeShapeType === "pointer") {
+        setSelectedShapeId(null);
+        return;
+      }
+
       const coords = getMouseSourceCoordinates(e.clientX, e.clientY, videoRef);
       if (!coords) return;
       const sourceVideo = videoRef === acceptanceVideoRef ? "acceptance" : "emission";
@@ -1392,7 +1400,8 @@ export const SyncDualPlayer: React.FC = () => {
           endY: coords.sourceY,
           sourceVideo,
           color: shapeColor,
-          text: "Kliknij, aby wpisać tekst..."
+          text: "Kliknij, aby wpisać tekst...",
+          fontSize: annotationFontSize
         };
         setShapeLines(prev => [...prev, textShape]);
         setSelectedShapeId(textShape.id);
@@ -1494,7 +1503,7 @@ export const SyncDualPlayer: React.FC = () => {
       return;
     }
 
-    if (isShapeToolActive && activeShape && !isPlaying) {
+    if (isShapeToolActive && activeShapeType !== "pointer" && activeShape && !isPlaying) {
       const sourceVideo = videoRef === acceptanceVideoRef ? "acceptance" : "emission";
       if (activeShape.sourceVideo === sourceVideo) {
         const coords = getMouseSourceCoordinates(e.clientX, e.clientY, videoRef);
@@ -1531,7 +1540,7 @@ export const SyncDualPlayer: React.FC = () => {
       }
     }
 
-    if (isShapeToolActive && activeShape) {
+    if (isShapeToolActive && activeShapeType !== "pointer" && activeShape) {
       const dist = Math.sqrt(Math.pow(activeShape.endX - activeShape.startX, 2) + Math.pow(activeShape.endY - activeShape.startY, 2));
       if (dist > 5) {
         setShapeLines(prev => [...prev, activeShape]);
@@ -2737,12 +2746,9 @@ export const SyncDualPlayer: React.FC = () => {
                 fCtx.strokeRect(x, y, w, h);
               } else if (shape.type === "text") {
                 const textVal = shape.text || "Komentarz";
-                fCtx.font = `bold ${Math.round(16 * baseScale)}px Roboto, sans-serif`;
+                fCtx.font = `bold ${Math.round((shape.fontSize || 16) * baseScale)}px Roboto, sans-serif`;
                 fCtx.fillStyle = shape.color;
-                fCtx.shadowColor = "rgba(0,0,0,0.8)";
-                fCtx.shadowBlur = 4 * baseScale;
                 fCtx.fillText(textVal, shape.startX, shape.startY);
-                fCtx.shadowBlur = 0;
               }
             });
           }
@@ -3338,7 +3344,7 @@ export const SyncDualPlayer: React.FC = () => {
               const p2 = { x: end.x - arrowLen * Math.cos(angle + arrowAngle), y: end.y - arrowLen * Math.sin(angle + arrowAngle) };
 
               return (
-                <g key={shape.id || i} style={{ filter: "drop-shadow(0px 2px 4px rgba(0,0,0,0.8))" }}>
+                <g key={shape.id || i}>
                   {!isDrawing && (
                     <line
                       x1={start.x} y1={start.y} x2={end.x} y2={end.y}
@@ -3391,7 +3397,7 @@ export const SyncDualPlayer: React.FC = () => {
               const ry = Math.abs(end.y - start.y) / 2;
 
               return (
-                <g key={shape.id || i} style={{ filter: "drop-shadow(0px 1px 2px rgba(0,0,0,0.7))" }}>
+                <g key={shape.id || i}>
                   <ellipse
                     cx={cx} cy={cy} rx={rx} ry={ry}
                     fill="none" stroke={shape.color} strokeWidth="2.5"
@@ -3426,7 +3432,7 @@ export const SyncDualPlayer: React.FC = () => {
               const w = Math.abs(end.x - start.x);
               const h = Math.abs(end.y - start.y);
               return (
-                <g key={shape.id || i} style={{ filter: "drop-shadow(0px 1px 2px rgba(0,0,0,0.7))" }}>
+                <g key={shape.id || i}>
                   <rect
                     x={x} y={y} width={w} height={h}
                     fill="none" stroke={shape.color} strokeWidth="2.5"
@@ -3460,7 +3466,7 @@ export const SyncDualPlayer: React.FC = () => {
               const textVal = shape.text || "Komentarz";
 
               return (
-                <g key={shape.id || i} style={{ filter: "drop-shadow(0px 2px 4px rgba(0,0,0,0.8))" }}>
+                <g key={shape.id || i}>
                   {!isDrawing && isSelected && (
                     <rect
                       x={start.x - 4} y={start.y - 18}
@@ -3471,11 +3477,10 @@ export const SyncDualPlayer: React.FC = () => {
                   <text
                     x={start.x} y={start.y}
                     fill={shape.color}
-                    fontSize="16"
+                    fontSize={shape.fontSize || 16}
                     fontWeight="bold"
                     fontFamily="Roboto, 'Inter', sans-serif"
                     className={pointerClass}
-                    style={{ textShadow: "0px 0px 3px rgba(0,0,0,0.8), 0px 0px 6px rgba(0,0,0,0.5)" }}
                     onMouseDown={(e) => {
                       if (isDrawing) return;
                       e.stopPropagation();
@@ -3528,7 +3533,7 @@ export const SyncDualPlayer: React.FC = () => {
                 }
               }}
               className="px-3 py-1.5 text-sm font-bold text-white bg-gray-950/90 border-2 border-blue-500 rounded-xl shadow-2xl focus:outline-none focus:ring-2 focus:ring-blue-400 font-sans min-w-[220px]"
-              style={{ color: editingShape.color, textShadow: "0 1px 3px black" }}
+              style={{ color: editingShape.color, fontSize: `${editingShape.fontSize || 16}px` }}
             />
           </div>
         );
@@ -3772,6 +3777,27 @@ export const SyncDualPlayer: React.FC = () => {
 
           {isShapeToolActive && (
             <div className="flex items-center gap-1 pl-1.5 border-l border-white/20">
+              {/* Pointer / Select Tool */}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setActiveShapeType("pointer");
+                  setShapeStartPoint(null);
+                  setActiveShape(null);
+                }}
+                className={`w-7 h-7 rounded-lg text-xs font-bold flex items-center justify-center transition-all ${
+                  activeShapeType === "pointer" ? "bg-blue-500 text-white shadow-sm ring-2 ring-blue-400/50" : "bg-white/10 text-white/80 hover:bg-white/20"
+                }`}
+                title="Wskaźnik / Select"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.042 21.672L13.684 16.6m0 0l-2.51 2.225.569-9.47 5.227 7.917-3.286-.672zM12 2.25V4.5m5.834.166l-1.591 1.591M20.25 10.5H18M7.757 14.743l-1.59 1.59M6 10.5H3.75m4.007-4.243l-1.59-1.59" />
+                </svg>
+              </button>
+
+              <div className="w-px h-5 bg-white/15 mx-0.5" />
+
               <button
                 type="button"
                 onClick={(e) => {
@@ -3844,13 +3870,30 @@ export const SyncDualPlayer: React.FC = () => {
                 </svg>
               </button>
 
+              <div className="w-px h-5 bg-white/15 mx-0.5" />
+
               <input
                 type="color"
                 value={annotationColor}
                 onChange={(e) => setAnnotationColor(e.target.value)}
-                className="w-6 h-6 p-0 border-0 rounded-full cursor-pointer bg-transparent ml-1"
+                className="w-6 h-6 p-0 border-0 rounded-full cursor-pointer bg-transparent"
                 title="Kolor adnotacji"
               />
+
+              {/* Font Size Selector */}
+              <select
+                value={annotationFontSize}
+                onChange={(e) => setAnnotationFontSize(Number(e.target.value))}
+                className="h-6 px-1 text-[10px] font-bold bg-white/10 text-white/90 border border-white/20 rounded-md cursor-pointer focus:outline-none focus:ring-1 focus:ring-blue-400 appearance-none text-center"
+                title="Rozmiar czcionki"
+                style={{ minWidth: "38px" }}
+              >
+                <option value={12} className="bg-gray-800 text-white">12</option>
+                <option value={16} className="bg-gray-800 text-white">16</option>
+                <option value={20} className="bg-gray-800 text-white">20</option>
+                <option value={24} className="bg-gray-800 text-white">24</option>
+                <option value={32} className="bg-gray-800 text-white">32</option>
+              </select>
 
               {shapeLines.length > 0 && (
                 <button
