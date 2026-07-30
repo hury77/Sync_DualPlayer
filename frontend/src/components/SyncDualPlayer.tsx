@@ -294,7 +294,7 @@ export const SyncDualPlayer: React.FC = () => {
   const [activeShape, setActiveShape] = useState<VideoShape | null>(null);
   const [shapeStartPoint, setShapeStartPoint] = useState<{x: number, y: number, video: "acceptance"|"emission"} | null>(null);
   const [selectedShapeId, setSelectedShapeId] = useState<string | null>(null);
-  const [annotationFontSize, setAnnotationFontSize] = useState<number>(16);
+  const [annotationFontSize, setAnnotationFontSize] = useState<number>(20);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -2989,6 +2989,14 @@ export const SyncDualPlayer: React.FC = () => {
 
       if (item.type === "visual" || item.type === "unified" || item.type === "single") {
         let hasVideoImages = false;
+
+        // Page break check before placing video images
+        const estimatedImageBlockH = item.type === "single" ? 108 : 64;
+        if (yOffset + estimatedImageBlockH > 275) {
+          doc.addPage();
+          yOffset = 20;
+        }
+
         if (item.type === "single" && item.acceptanceImage) {
           hasVideoImages = true;
           doc.setFont(fontName, "bold");
@@ -3880,16 +3888,29 @@ export const SyncDualPlayer: React.FC = () => {
                 title="Kolor adnotacji"
               />
 
-              {/* Font Size Selector */}
+              {/* Font Size Selector — also updates selected text shape */}
               <select
-                value={annotationFontSize}
-                onChange={(e) => setAnnotationFontSize(Number(e.target.value))}
+                value={(() => {
+                  if (selectedShapeId) {
+                    const sel = shapeLines.find(s => s.id === selectedShapeId && s.type === "text");
+                    if (sel) return sel.fontSize || 20;
+                  }
+                  return annotationFontSize;
+                })()}
+                onChange={(e) => {
+                  const newSize = Number(e.target.value);
+                  setAnnotationFontSize(newSize);
+                  // If a text shape is selected, update its fontSize immediately
+                  if (selectedShapeId) {
+                    setShapeLines(prev => prev.map(s =>
+                      s.id === selectedShapeId && s.type === "text" ? { ...s, fontSize: newSize } : s
+                    ));
+                  }
+                }}
                 className="h-6 px-1 text-[10px] font-bold bg-white/10 text-white/90 border border-white/20 rounded-md cursor-pointer focus:outline-none focus:ring-1 focus:ring-blue-400 appearance-none text-center"
                 title="Rozmiar czcionki"
                 style={{ minWidth: "38px" }}
               >
-                <option value={12} className="bg-gray-800 text-white">12</option>
-                <option value={16} className="bg-gray-800 text-white">16</option>
                 <option value={20} className="bg-gray-800 text-white">20</option>
                 <option value={24} className="bg-gray-800 text-white">24</option>
                 <option value={32} className="bg-gray-800 text-white">32</option>
