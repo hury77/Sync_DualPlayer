@@ -38,7 +38,7 @@ const ShapeIcon = ({ className }: { className?: string }) => (
   </svg>
 );
 
-export type ShapeType = "arrow" | "circle" | "rectangle";
+export type ShapeType = "arrow" | "circle" | "rectangle" | "text";
 export interface VideoShape {
   id: string;
   type: ShapeType;
@@ -48,6 +48,7 @@ export interface VideoShape {
   endY: number;
   sourceVideo: "acceptance" | "emission";
   color: string;
+  text?: string;
 }
 
 interface RulerLine {
@@ -284,9 +285,10 @@ export const SyncDualPlayer: React.FC = () => {
   const [activeRulerLine, setActiveRulerLine] = useState<RulerLine | null>(null);
   const [rulerStartPoint, setRulerStartPoint] = useState<{x: number, y: number, video: "acceptance"|"emission"} | null>(null);
 
-  // Shape Annotation States
+  // Shape & Text Annotation States
   const [isShapeToolActive, setIsShapeToolActive] = useState(false);
   const [activeShapeType, setActiveShapeType] = useState<ShapeType>("arrow");
+  const [annotationText, setAnnotationText] = useState("Komentarz");
   const [shapeLines, setShapeLines] = useState<VideoShape[]>([]);
   const [activeShape, setActiveShape] = useState<VideoShape | null>(null);
   const [shapeStartPoint, setShapeStartPoint] = useState<{x: number, y: number, video: "acceptance"|"emission"} | null>(null);
@@ -1352,6 +1354,32 @@ export const SyncDualPlayer: React.FC = () => {
       const coords = getMouseSourceCoordinates(e.clientX, e.clientY, videoRef);
       if (!coords) return;
       const sourceVideo = videoRef === acceptanceVideoRef ? "acceptance" : "emission";
+
+      // Deselect existing shape on click away instead of creating a duplicate
+      if (selectedShapeId !== null) {
+        setSelectedShapeId(null);
+        return;
+      }
+
+      if (activeShapeType === "text") {
+        // Text creation mode: place text at click coordinates
+        const textShape: VideoShape = {
+          id: Date.now().toString() + Math.random().toString(36).substring(2, 5),
+          type: "text",
+          startX: coords.sourceX,
+          startY: coords.sourceY,
+          endX: coords.sourceX,
+          endY: coords.sourceY,
+          sourceVideo,
+          color: shapeColor,
+          text: annotationText || "Komentarz"
+        };
+        setShapeLines(prev => [...prev, textShape]);
+        setSelectedShapeId(textShape.id);
+        setShapeStartPoint(null);
+        setActiveShape(null);
+        return;
+      }
 
       if (shapeStartPoint && shapeStartPoint.video === sourceVideo) {
         // Second click: finalize shape (like ruler)
@@ -2686,6 +2714,14 @@ export const SyncDualPlayer: React.FC = () => {
                 const w = Math.abs(shape.endX - shape.startX);
                 const h = Math.abs(shape.endY - shape.startY);
                 fCtx.strokeRect(x, y, w, h);
+              } else if (shape.type === "text") {
+                const textVal = shape.text || "Komentarz";
+                fCtx.font = `bold ${Math.round(16 * baseScale)}px Roboto, sans-serif`;
+                fCtx.fillStyle = shape.color;
+                fCtx.shadowColor = "rgba(0,0,0,0.8)";
+                fCtx.shadowBlur = 4 * baseScale;
+                fCtx.fillText(textVal, shape.startX, shape.startY);
+                fCtx.shadowBlur = 0;
               }
             });
           }
@@ -3360,24 +3396,58 @@ export const SyncDualPlayer: React.FC = () => {
                   className="pointer-events-auto cursor-move"
                   onMouseDown={(e) => {
                     e.stopPropagation();
+                    e.preventDefault();
                     setSelectedShapeId(shape.id);
                     setDragHandle({ component: "shape", sourceVideo, type: "move", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY });
                   }}
+                  onClick={(e) => { e.stopPropagation(); e.preventDefault(); }}
                 />
                 {isSelected && (
                   <>
                     <rect x={x - 2} y={y - 2} width={w + 4} height={h + 4} fill="none" stroke="#3b82f6" strokeWidth="1" strokeDasharray="3 3" />
                     {/* Handles */}
                     <rect x={x - 6} y={y - 6} width="8" height="8" fill="white" stroke="#3b82f6" strokeWidth="1.5" className="pointer-events-auto cursor-nwse-resize"
-                      onMouseDown={(e) => { e.stopPropagation(); setDragHandle({ component: "shape", sourceVideo, type: "tl", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY }); }} />
+                      onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); setDragHandle({ component: "shape", sourceVideo, type: "tl", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY }); }} />
                     <rect x={x + w - 2} y={y - 6} width="8" height="8" fill="white" stroke="#3b82f6" strokeWidth="1.5" className="pointer-events-auto cursor-nesw-resize"
-                      onMouseDown={(e) => { e.stopPropagation(); setDragHandle({ component: "shape", sourceVideo, type: "tr", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY }); }} />
+                      onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); setDragHandle({ component: "shape", sourceVideo, type: "tr", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY }); }} />
                     <rect x={x - 6} y={y + h - 2} width="8" height="8" fill="white" stroke="#3b82f6" strokeWidth="1.5" className="pointer-events-auto cursor-nesw-resize"
-                      onMouseDown={(e) => { e.stopPropagation(); setDragHandle({ component: "shape", sourceVideo, type: "bl", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY }); }} />
+                      onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); setDragHandle({ component: "shape", sourceVideo, type: "bl", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY }); }} />
                     <rect x={x + w - 2} y={y + h - 2} width="8" height="8" fill="white" stroke="#3b82f6" strokeWidth="1.5" className="pointer-events-auto cursor-nwse-resize"
-                      onMouseDown={(e) => { e.stopPropagation(); setDragHandle({ component: "shape", sourceVideo, type: "br", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY }); }} />
+                      onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); setDragHandle({ component: "shape", sourceVideo, type: "br", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY }); }} />
                   </>
                 )}
+              </g>
+            );
+          } else if (shape.type === "text") {
+            const isSelected = selectedShapeId === shape.id;
+            const textVal = shape.text || annotationText || "Komentarz";
+            return (
+              <g key={shape.id || i}>
+                {isSelected && (
+                  <rect
+                    x={start.x - 4} y={start.y - 18}
+                    width={Math.max(60, textVal.length * 9.5 + 8)} height="24"
+                    fill="none" stroke="#3b82f6" strokeWidth="1.5" strokeDasharray="3 3"
+                  />
+                )}
+                <text
+                  x={start.x} y={start.y}
+                  fill={shape.color}
+                  fontSize="16"
+                  fontWeight="bold"
+                  fontFamily="Roboto, 'Inter', sans-serif"
+                  className="pointer-events-auto cursor-move select-none"
+                  style={{ textShadow: "0px 0px 3px rgba(0,0,0,0.8), 0px 0px 6px rgba(0,0,0,0.5)" }}
+                  onMouseDown={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    setSelectedShapeId(shape.id);
+                    setDragHandle({ component: "shape", sourceVideo, type: "move", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY });
+                  }}
+                  onClick={(e) => { e.stopPropagation(); e.preventDefault(); }}
+                >
+                  {textVal}
+                </text>
               </g>
             );
           }
@@ -3598,6 +3668,122 @@ export const SyncDualPlayer: React.FC = () => {
             <span className="w-2 h-2 rounded-full bg-white dark:bg-[#121212] animate-pulse" />
           )}
         </button>
+
+        {/* Top Header Bar Shape & Text Control Panel (matching screenshot) */}
+        <div className="flex items-center gap-1.5 bg-[#4960E6]/20 border border-[#4960E6]/50 p-1.5 rounded-xl shadow-inner ml-2">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsShapeToolActive(!isShapeToolActive);
+              if (!isShapeToolActive) {
+                setIsEyedropperActive(false);
+                setIsRulerActive(false);
+              }
+            }}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${
+              isShapeToolActive ? "bg-white text-[#350F9C] shadow-sm" : "bg-white/10 text-white hover:bg-white/20"
+            }`}
+            title="Narzędzie Kształtów i Tekstu"
+          >
+            <ShapeIcon className="w-4 h-4" />
+            <span>Kształty</span>
+          </button>
+
+          {isShapeToolActive && (
+            <div className="flex items-center gap-1 pl-1 border-l border-white/20">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setActiveShapeType("arrow");
+                  setShapeStartPoint(null);
+                  setActiveShape(null);
+                }}
+                className={`w-7 h-7 rounded-lg text-xs font-bold flex items-center justify-center transition-all ${
+                  activeShapeType === "arrow" ? "bg-red-500 text-white shadow-sm ring-2 ring-white/50" : "bg-white/20 text-white hover:bg-white/30"
+                }`}
+                title="Strzałka (➔)"
+              >
+                ➔
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setActiveShapeType("circle");
+                  setShapeStartPoint(null);
+                  setActiveShape(null);
+                }}
+                className={`w-7 h-7 rounded-lg text-xs font-bold flex items-center justify-center transition-all ${
+                  activeShapeType === "circle" ? "bg-red-500 text-white shadow-sm ring-2 ring-white/50" : "bg-white/20 text-white hover:bg-white/30"
+                }`}
+                title="Kółko (⭕)"
+              >
+                ⭕
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setActiveShapeType("rectangle");
+                  setShapeStartPoint(null);
+                  setActiveShape(null);
+                }}
+                className={`w-7 h-7 rounded-lg text-xs font-bold flex items-center justify-center transition-all ${
+                  activeShapeType === "rectangle" ? "bg-red-500 text-white shadow-sm ring-2 ring-white/50" : "bg-white/20 text-white hover:bg-white/30"
+                }`}
+                title="Kwadrat / Prostokąt (🔲)"
+              >
+                🔲
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setActiveShapeType("text");
+                  setShapeStartPoint(null);
+                  setActiveShape(null);
+                }}
+                className={`w-7 h-7 rounded-lg text-xs font-bold flex items-center justify-center transition-all ${
+                  activeShapeType === "text" ? "bg-red-500 text-white shadow-sm ring-2 ring-white/50" : "bg-white/20 text-white hover:bg-white/30"
+                }`}
+                title="Pole Tekstowe (T)"
+              >
+                T
+              </button>
+
+              <input
+                type="color"
+                value={annotationColor}
+                onChange={(e) => setAnnotationColor(e.target.value)}
+                className="w-6 h-6 p-0 border-0 rounded-full cursor-pointer bg-transparent ml-1"
+                title="Kolor adnotacji"
+              />
+
+              {activeShapeType === "text" && (
+                <input
+                  type="text"
+                  value={annotationText}
+                  onChange={(e) => setAnnotationText(e.target.value)}
+                  placeholder="Wpisz tekst (np. Za małe logo)..."
+                  className="px-2 py-1 text-xs rounded-lg bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-red-500 w-48 font-sans font-medium"
+                />
+              )}
+
+              {shapeLines.length > 0 && (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); setShapeLines([]); }}
+                  className="w-6 h-6 flex items-center justify-center rounded text-red-300 hover:text-white hover:bg-red-500/30 transition-colors ml-0.5"
+                  title="Wyczyść wszystkie kształty"
+                >
+                  <XMarkIcon className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* Diff Highlights Toggle */}
         {!isSinglePlayerMode && diffMode && (
