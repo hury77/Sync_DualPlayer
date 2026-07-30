@@ -1206,7 +1206,7 @@ export const SyncDualPlayer: React.FC = () => {
           updated[dragHandle.index!] = line;
           return updated;
         });
-      } else if (dragHandle.component === "shape" && dragHandle.initialShape && dragHandle.index !== undefined) {
+      } else if (dragHandle.component === "shape" && dragHandle.initialShape) {
         const shape = { ...dragHandle.initialShape };
         const startCoords = getMouseSourceCoordinates(dragHandle.initialMouseX, dragHandle.initialMouseY, videoRef);
         if (!startCoords) return;
@@ -1232,11 +1232,7 @@ export const SyncDualPlayer: React.FC = () => {
           shape.endY = coords.sourceY;
         }
 
-        setShapeLines(prev => {
-          const updated = [...prev];
-          updated[dragHandle.index!] = shape;
-          return updated;
-        });
+        setShapeLines(prev => prev.map(s => s.id === dragHandle.initialShape!.id ? shape : s));
       }
     };
 
@@ -3327,27 +3323,81 @@ export const SyncDualPlayer: React.FC = () => {
     const pointerClass = isDrawing ? "pointer-events-none" : "pointer-events-auto cursor-move";
 
     return (
-      <svg xmlns="http://www.w3.org/2000/svg" className="absolute top-0 left-0 w-full h-full pointer-events-none z-20">
-        {shapesToRender.filter(s => s.sourceVideo === sourceVideo).map((shape, i) => {
-          const start = mapToScreen(shape.startX, shape.startY);
-          const end = mapToScreen(shape.endX, shape.endY);
-          const isSelected = selectedShapeId === shape.id;
+      <React.Fragment>
+        <svg xmlns="http://www.w3.org/2000/svg" className="absolute top-0 left-0 w-full h-full pointer-events-none z-20">
+          {shapesToRender.filter(s => s.sourceVideo === sourceVideo).map((shape, i) => {
+            const start = mapToScreen(shape.startX, shape.startY);
+            const end = mapToScreen(shape.endX, shape.endY);
+            const isSelected = selectedShapeId === shape.id;
 
-          if (shape.type === "arrow") {
-            const angle = Math.atan2(end.y - start.y, end.x - start.x);
-            const arrowLen = 14;
-            const arrowAngle = Math.PI / 6;
-            const p1 = { x: end.x - arrowLen * Math.cos(angle - arrowAngle), y: end.y - arrowLen * Math.sin(angle - arrowAngle) };
-            const p2 = { x: end.x - arrowLen * Math.cos(angle + arrowAngle), y: end.y - arrowLen * Math.sin(angle + arrowAngle) };
+            if (shape.type === "arrow") {
+              const angle = Math.atan2(end.y - start.y, end.x - start.x);
+              const arrowLen = 14;
+              const arrowAngle = Math.PI / 6;
+              const p1 = { x: end.x - arrowLen * Math.cos(angle - arrowAngle), y: end.y - arrowLen * Math.sin(angle - arrowAngle) };
+              const p2 = { x: end.x - arrowLen * Math.cos(angle + arrowAngle), y: end.y - arrowLen * Math.sin(angle + arrowAngle) };
 
-            return (
-              <g key={shape.id || i} style={{ filter: "drop-shadow(0px 2px 4px rgba(0,0,0,0.8))" }}>
-                {!isDrawing && (
-                  <line
-                    x1={start.x} y1={start.y} x2={end.x} y2={end.y}
-                    stroke="transparent" strokeWidth="16"
-                    className="pointer-events-auto cursor-move"
+              return (
+                <g key={shape.id || i} style={{ filter: "drop-shadow(0px 2px 4px rgba(0,0,0,0.8))" }}>
+                  {!isDrawing && (
+                    <line
+                      x1={start.x} y1={start.y} x2={end.x} y2={end.y}
+                      stroke="transparent" strokeWidth="16"
+                      className="pointer-events-auto cursor-move"
+                      onMouseDown={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        setSelectedShapeId(shape.id);
+                        setDragHandle({ component: "shape", sourceVideo, type: "move", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY });
+                      }}
+                      onClick={(e) => { e.stopPropagation(); e.preventDefault(); }}
+                    />
+                  )}
+                  {/* White origin dot for professional vector look */}
+                  <circle cx={start.x} cy={start.y} r="4" fill="white" stroke={shape.color} strokeWidth="2" className="pointer-events-none" />
+                  <line x1={start.x} y1={start.y} x2={end.x} y2={end.y} stroke={shape.color} strokeWidth="2.5" strokeLinecap="round" className="pointer-events-none" />
+                  <polygon points={`${end.x},${end.y} ${p1.x},${p1.y} ${p2.x},${p2.y}`} fill={shape.color} className="pointer-events-none" />
+                  
+                  {!isDrawing && (
+                    <>
+                      <circle
+                        cx={start.x} cy={start.y} r="6" fill="white" stroke={shape.color} strokeWidth="2"
+                        className="pointer-events-auto cursor-crosshair"
+                        onMouseDown={(e) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                          setSelectedShapeId(shape.id);
+                          setDragHandle({ component: "shape", sourceVideo, type: "start", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY });
+                        }}
+                      />
+                      <circle
+                        cx={end.x} cy={end.y} r="6" fill="white" stroke={shape.color} strokeWidth="2"
+                        className="pointer-events-auto cursor-crosshair"
+                        onMouseDown={(e) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                          setSelectedShapeId(shape.id);
+                          setDragHandle({ component: "shape", sourceVideo, type: "end", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY });
+                        }}
+                      />
+                    </>
+                  )}
+                </g>
+              );
+            } else if (shape.type === "circle") {
+              const cx = (start.x + end.x) / 2;
+              const cy = (start.y + end.y) / 2;
+              const rx = Math.abs(end.x - start.x) / 2;
+              const ry = Math.abs(end.y - start.y) / 2;
+
+              return (
+                <g key={shape.id || i} style={{ filter: "drop-shadow(0px 1px 2px rgba(0,0,0,0.7))" }}>
+                  <ellipse
+                    cx={cx} cy={cy} rx={rx} ry={ry}
+                    fill="none" stroke={shape.color} strokeWidth="2.5"
+                    className={pointerClass}
                     onMouseDown={(e) => {
+                      if (isDrawing) return;
                       e.stopPropagation();
                       e.preventDefault();
                       setSelectedShapeId(shape.id);
@@ -3355,169 +3405,135 @@ export const SyncDualPlayer: React.FC = () => {
                     }}
                     onClick={(e) => { e.stopPropagation(); e.preventDefault(); }}
                   />
-                )}
-                {/* White origin dot for professional vector look */}
-                <circle cx={start.x} cy={start.y} r="4" fill="white" stroke={shape.color} strokeWidth="2" className="pointer-events-none" />
-                <line x1={start.x} y1={start.y} x2={end.x} y2={end.y} stroke={shape.color} strokeWidth="2.5" strokeLinecap="round" className="pointer-events-none" />
-                <polygon points={`${end.x},${end.y} ${p1.x},${p1.y} ${p2.x},${p2.y}`} fill={shape.color} className="pointer-events-none" />
-                
-                {!isDrawing && (
-                  <>
-                    <circle
-                      cx={start.x} cy={start.y} r="6" fill="white" stroke={shape.color} strokeWidth="2"
-                      className="pointer-events-auto cursor-crosshair"
-                      onMouseDown={(e) => {
-                        e.stopPropagation();
-                        e.preventDefault();
-                        setSelectedShapeId(shape.id);
-                        setDragHandle({ component: "shape", sourceVideo, type: "start", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY });
-                      }}
-                    />
-                    <circle
-                      cx={end.x} cy={end.y} r="6" fill="white" stroke={shape.color} strokeWidth="2"
-                      className="pointer-events-auto cursor-crosshair"
-                      onMouseDown={(e) => {
-                        e.stopPropagation();
-                        e.preventDefault();
-                        setSelectedShapeId(shape.id);
-                        setDragHandle({ component: "shape", sourceVideo, type: "end", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY });
-                      }}
-                    />
-                  </>
-                )}
-              </g>
-            );
-          } else if (shape.type === "circle") {
-            const cx = (start.x + end.x) / 2;
-            const cy = (start.y + end.y) / 2;
-            const rx = Math.abs(end.x - start.x) / 2;
-            const ry = Math.abs(end.y - start.y) / 2;
-
-            return (
-              <g key={shape.id || i} style={{ filter: "drop-shadow(0px 1px 2px rgba(0,0,0,0.7))" }}>
-                <ellipse
-                  cx={cx} cy={cy} rx={rx} ry={ry}
-                  fill="none" stroke={shape.color} strokeWidth="2.5"
-                  className={pointerClass}
-                  onMouseDown={(e) => {
-                    if (isDrawing) return;
-                    e.stopPropagation();
-                    e.preventDefault();
-                    setSelectedShapeId(shape.id);
-                    setDragHandle({ component: "shape", sourceVideo, type: "move", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY });
-                  }}
-                  onClick={(e) => { e.stopPropagation(); e.preventDefault(); }}
-                />
-                {!isDrawing && isSelected && (
-                  <>
-                    <rect x={cx - rx - 2} y={cy - ry - 2} width={rx * 2 + 4} height={ry * 2 + 4} fill="none" stroke="#3b82f6" strokeWidth="1" strokeDasharray="3 3" />
-                    <rect x={cx - rx - 6} y={cy - ry - 6} width="8" height="8" fill="white" stroke="#3b82f6" strokeWidth="1.5" className="pointer-events-auto cursor-nwse-resize"
-                      onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); setDragHandle({ component: "shape", sourceVideo, type: "tl", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY }); }} />
-                    <rect x={cx + rx - 2} y={cy - ry - 6} width="8" height="8" fill="white" stroke="#3b82f6" strokeWidth="1.5" className="pointer-events-auto cursor-nesw-resize"
-                      onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); setDragHandle({ component: "shape", sourceVideo, type: "tr", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY }); }} />
-                    <rect x={cx - rx - 6} y={cy + ry - 2} width="8" height="8" fill="white" stroke="#3b82f6" strokeWidth="1.5" className="pointer-events-auto cursor-nesw-resize"
-                      onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); setDragHandle({ component: "shape", sourceVideo, type: "bl", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY }); }} />
-                    <rect x={cx + rx - 2} y={cy + ry - 2} width="8" height="8" fill="white" stroke="#3b82f6" strokeWidth="1.5" className="pointer-events-auto cursor-nwse-resize"
-                      onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); setDragHandle({ component: "shape", sourceVideo, type: "br", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY }); }} />
-                  </>
-                )}
-              </g>
-            );
-          } else if (shape.type === "rectangle") {
-            const x = Math.min(start.x, end.x);
-            const y = Math.min(start.y, end.y);
-            const w = Math.abs(end.x - start.x);
-            const h = Math.abs(end.y - start.y);
-            return (
-              <g key={shape.id || i} style={{ filter: "drop-shadow(0px 1px 2px rgba(0,0,0,0.7))" }}>
-                <rect
-                  x={x} y={y} width={w} height={h}
-                  fill="none" stroke={shape.color} strokeWidth="2.5"
-                  className={pointerClass}
-                  onMouseDown={(e) => {
-                    if (isDrawing) return;
-                    e.stopPropagation();
-                    e.preventDefault();
-                    setSelectedShapeId(shape.id);
-                    setDragHandle({ component: "shape", sourceVideo, type: "move", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY });
-                  }}
-                  onClick={(e) => { e.stopPropagation(); e.preventDefault(); }}
-                />
-                {!isDrawing && isSelected && (
-                  <>
-                    <rect x={x - 2} y={y - 2} width={w + 4} height={h + 4} fill="none" stroke="#3b82f6" strokeWidth="1" strokeDasharray="3 3" />
-                    <rect x={x - 6} y={y - 6} width="8" height="8" fill="white" stroke="#3b82f6" strokeWidth="1.5" className="pointer-events-auto cursor-nwse-resize"
-                      onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); setDragHandle({ component: "shape", sourceVideo, type: "tl", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY }); }} />
-                    <rect x={x + w - 2} y={y - 6} width="8" height="8" fill="white" stroke="#3b82f6" strokeWidth="1.5" className="pointer-events-auto cursor-nesw-resize"
-                      onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); setDragHandle({ component: "shape", sourceVideo, type: "tr", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY }); }} />
-                    <rect x={x - 6} y={y + h - 2} width="8" height="8" fill="white" stroke="#3b82f6" strokeWidth="1.5" className="pointer-events-auto cursor-nesw-resize"
-                      onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); setDragHandle({ component: "shape", sourceVideo, type: "bl", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY }); }} />
-                    <rect x={x + w - 2} y={y + h - 2} width="8" height="8" fill="white" stroke="#3b82f6" strokeWidth="1.5" className="pointer-events-auto cursor-nwse-resize"
-                      onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); setDragHandle({ component: "shape", sourceVideo, type: "br", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY }); }} />
-                  </>
-                )}
-              </g>
-            );
-          } else if (shape.type === "text") {
-            const isSelected = selectedShapeId === shape.id;
-            const isEditingThis = editingTextId === shape.id;
-            const textVal = shape.text || "Komentarz";
-
-            if (isEditingThis) {
+                  {!isDrawing && isSelected && (
+                    <>
+                      <rect x={cx - rx - 2} y={cy - ry - 2} width={rx * 2 + 4} height={ry * 2 + 4} fill="none" stroke="#3b82f6" strokeWidth="1" strokeDasharray="3 3" />
+                      <rect x={cx - rx - 6} y={cy - ry - 6} width="8" height="8" fill="white" stroke="#3b82f6" strokeWidth="1.5" className="pointer-events-auto cursor-nwse-resize"
+                        onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); setDragHandle({ component: "shape", sourceVideo, type: "tl", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY }); }} />
+                      <rect x={cx + rx - 2} y={cy - ry - 6} width="8" height="8" fill="white" stroke="#3b82f6" strokeWidth="1.5" className="pointer-events-auto cursor-nesw-resize"
+                        onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); setDragHandle({ component: "shape", sourceVideo, type: "tr", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY }); }} />
+                      <rect x={cx - rx - 6} y={cy + ry - 2} width="8" height="8" fill="white" stroke="#3b82f6" strokeWidth="1.5" className="pointer-events-auto cursor-nesw-resize"
+                        onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); setDragHandle({ component: "shape", sourceVideo, type: "bl", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY }); }} />
+                      <rect x={cx + rx - 2} y={cy + ry - 2} width="8" height="8" fill="white" stroke="#3b82f6" strokeWidth="1.5" className="pointer-events-auto cursor-nwse-resize"
+                        onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); setDragHandle({ component: "shape", sourceVideo, type: "br", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY }); }} />
+                    </>
+                  )}
+                </g>
+              );
+            } else if (shape.type === "rectangle") {
+              const x = Math.min(start.x, end.x);
+              const y = Math.min(start.y, end.y);
+              const w = Math.abs(end.x - start.x);
+              const h = Math.abs(end.y - start.y);
               return (
-                <foreignObject key={shape.id || i} x={start.x} y={start.y - 16} width="240" height="42" className="pointer-events-auto z-40">
-                  <input
-                    type="text"
-                    autoFocus
-                    value={shape.text || ""}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setShapeLines(prev => prev.map(s => s.id === shape.id ? { ...s, text: val } : s));
+                <g key={shape.id || i} style={{ filter: "drop-shadow(0px 1px 2px rgba(0,0,0,0.7))" }}>
+                  <rect
+                    x={x} y={y} width={w} height={h}
+                    fill="none" stroke={shape.color} strokeWidth="2.5"
+                    className={pointerClass}
+                    onMouseDown={(e) => {
+                      if (isDrawing) return;
+                      e.stopPropagation();
+                      e.preventDefault();
+                      setSelectedShapeId(shape.id);
+                      setDragHandle({ component: "shape", sourceVideo, type: "move", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY });
                     }}
-                    onBlur={() => setEditingTextId(null)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") setEditingTextId(null);
-                    }}
-                    className="w-full px-2 py-1 text-sm font-bold text-white bg-gray-900/90 border-2 border-blue-500 rounded-lg shadow-xl focus:outline-none font-sans"
-                    style={{ color: shape.color, textShadow: "0 1px 2px black" }}
+                    onClick={(e) => { e.stopPropagation(); e.preventDefault(); }}
                   />
-                </foreignObject>
+                  {!isDrawing && isSelected && (
+                    <>
+                      <rect x={x - 2} y={y - 2} width={w + 4} height={h + 4} fill="none" stroke="#3b82f6" strokeWidth="1" strokeDasharray="3 3" />
+                      <rect x={x - 6} y={y - 6} width="8" height="8" fill="white" stroke="#3b82f6" strokeWidth="1.5" className="pointer-events-auto cursor-nwse-resize"
+                        onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); setDragHandle({ component: "shape", sourceVideo, type: "tl", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY }); }} />
+                      <rect x={x + w - 2} y={y - 6} width="8" height="8" fill="white" stroke="#3b82f6" strokeWidth="1.5" className="pointer-events-auto cursor-nesw-resize"
+                        onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); setDragHandle({ component: "shape", sourceVideo, type: "tr", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY }); }} />
+                      <rect x={x - 6} y={y + h - 2} width="8" height="8" fill="white" stroke="#3b82f6" strokeWidth="1.5" className="pointer-events-auto cursor-nesw-resize"
+                        onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); setDragHandle({ component: "shape", sourceVideo, type: "bl", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY }); }} />
+                      <rect x={x + w - 2} y={y + h - 2} width="8" height="8" fill="white" stroke="#3b82f6" strokeWidth="1.5" className="pointer-events-auto cursor-nwse-resize"
+                        onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); setDragHandle({ component: "shape", sourceVideo, type: "br", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY }); }} />
+                    </>
+                  )}
+                </g>
+              );
+            } else if (shape.type === "text") {
+              const isSelected = selectedShapeId === shape.id;
+              const textVal = shape.text || "Komentarz";
+
+              return (
+                <g key={shape.id || i} style={{ filter: "drop-shadow(0px 2px 4px rgba(0,0,0,0.8))" }}>
+                  {!isDrawing && isSelected && (
+                    <rect
+                      x={start.x - 4} y={start.y - 18}
+                      width={Math.max(60, textVal.length * 9.5 + 12)} height="24"
+                      fill="none" stroke="#3b82f6" strokeWidth="1.5" strokeDasharray="3 3"
+                    />
+                  )}
+                  <text
+                    x={start.x} y={start.y}
+                    fill={shape.color}
+                    fontSize="16"
+                    fontWeight="bold"
+                    fontFamily="Roboto, 'Inter', sans-serif"
+                    className={pointerClass}
+                    style={{ textShadow: "0px 0px 3px rgba(0,0,0,0.8), 0px 0px 6px rgba(0,0,0,0.5)" }}
+                    onMouseDown={(e) => {
+                      if (isDrawing) return;
+                      e.stopPropagation();
+                      e.preventDefault();
+                      setSelectedShapeId(shape.id);
+                      setDragHandle({ component: "shape", sourceVideo, type: "move", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY });
+                    }}
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      setEditingTextId(shape.id);
+                    }}
+                    onClick={(e) => { e.stopPropagation(); e.preventDefault(); }}
+                  >
+                    {textVal}
+                  </text>
+                </g>
               );
             }
-
-            return (
-              <g key={shape.id || i} style={{ filter: "drop-shadow(0px 1px 2px rgba(0,0,0,0.7))" }}>
-                {!isDrawing && isSelected && (
-                  <rect
-                    x={start.x - 4} y={start.y - 18}
-                    width={Math.max(60, textVal.length * 9.5 + 12)} height="24"
-                    fill="none" stroke="#3b82f6" strokeWidth="1.5" strokeDasharray="3 3"
-                  />
-                )}
-                <text
-                  x={start.x} y={start.y}
-                  fill={shape.color}
-                  fontSize="16"
-                  fontWeight="bold"
-                  fontFamily="Roboto, 'Inter', sans-serif"
-                  className="pointer-events-auto cursor-move select-none"
-                  style={{ textShadow: "0px 0px 3px rgba(0,0,0,0.8), 0px 0px 6px rgba(0,0,0,0.5)" }}
-                  onMouseDown={(e) => {
-                    e.stopPropagation();
-                    e.preventDefault();
-                    setSelectedShapeId(shape.id);
-                    setDragHandle({ component: "shape", sourceVideo, type: "move", index: i, initialShape: shape, initialMouseX: e.clientX, initialMouseY: e.clientY });
-                  }}
-                  onClick={(e) => { e.stopPropagation(); e.preventDefault(); }}
-                >
-                  {textVal}
-                </text>
-              </g>
-            );
-          }
-          return null;
-        })}
+            return null;
+          })}
       </svg>
+
+      {/* Real HTML Inline Text Editing Overlay */}
+      {editingTextId && (() => {
+        const editingShape = shapeLines.find(s => s.id === editingTextId && s.sourceVideo === sourceVideo);
+        if (!editingShape) return null;
+        const start = mapToScreen(editingShape.startX, editingShape.startY);
+
+        return (
+          <div
+            key={editingShape.id}
+            className="absolute z-50 pointer-events-auto"
+            style={{ left: `${start.x}px`, top: `${start.y - 18}px` }}
+            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <input
+              type="text"
+              autoFocus
+              value={editingShape.text || ""}
+              onChange={(e) => {
+                const val = e.target.value;
+                setShapeLines(prev => prev.map(s => s.id === editingShape.id ? { ...s, text: val } : s));
+              }}
+              onBlur={() => setEditingTextId(null)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === "Escape") {
+                  setEditingTextId(null);
+                }
+              }}
+              className="px-3 py-1.5 text-sm font-bold text-white bg-gray-950/90 border-2 border-blue-500 rounded-xl shadow-2xl focus:outline-none focus:ring-2 focus:ring-blue-400 font-sans min-w-[220px]"
+              style={{ color: editingShape.color, textShadow: "0 1px 3px black" }}
+            />
+          </div>
+        );
+      })()}
+      </React.Fragment>
     );
   };
 
