@@ -3341,7 +3341,7 @@ export const SyncDualPlayer: React.FC = () => {
             const p2 = { x: end.x - arrowLen * Math.cos(angle + arrowAngle), y: end.y - arrowLen * Math.sin(angle + arrowAngle) };
 
             return (
-              <g key={shape.id || i} style={{ filter: "drop-shadow(0px 1px 2px rgba(0,0,0,0.7))" }}>
+              <g key={shape.id || i} style={{ filter: "drop-shadow(0px 2px 4px rgba(0,0,0,0.8))" }}>
                 {!isDrawing && (
                   <line
                     x1={start.x} y1={start.y} x2={end.x} y2={end.y}
@@ -3356,7 +3356,9 @@ export const SyncDualPlayer: React.FC = () => {
                     onClick={(e) => { e.stopPropagation(); e.preventDefault(); }}
                   />
                 )}
-                <line x1={start.x} y1={start.y} x2={end.x} y2={end.y} stroke={shape.color} strokeWidth="2.5" className="pointer-events-none" />
+                {/* White origin dot for professional vector look */}
+                <circle cx={start.x} cy={start.y} r="4" fill="white" stroke={shape.color} strokeWidth="2" className="pointer-events-none" />
+                <line x1={start.x} y1={start.y} x2={end.x} y2={end.y} stroke={shape.color} strokeWidth="2.5" strokeLinecap="round" className="pointer-events-none" />
                 <polygon points={`${end.x},${end.y} ${p1.x},${p1.y} ${p2.x},${p2.y}`} fill={shape.color} className="pointer-events-none" />
                 
                 {!isDrawing && (
@@ -3731,8 +3733,8 @@ export const SyncDualPlayer: React.FC = () => {
           )}
         </button>
 
-        {/* Top Header Bar Shape & Text Control Panel (matching screenshot) */}
-        <div className="flex items-center gap-1.5 bg-[#4960E6]/20 border border-[#4960E6]/50 p-1.5 rounded-xl shadow-inner ml-2">
+        {/* Top Header Bar Tools Panel (Figma / Frame.io Style) */}
+        <div className="flex items-center gap-1.5 bg-[#1E1B4B]/80 backdrop-blur-md border border-indigo-400/30 p-1.5 rounded-xl shadow-xl ml-2">
           <button
             type="button"
             onClick={(e) => {
@@ -3743,8 +3745,8 @@ export const SyncDualPlayer: React.FC = () => {
                 setIsRulerActive(false);
               }
             }}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${
-              isShapeToolActive ? "bg-white text-[#350F9C] shadow-sm" : "bg-white/10 text-white hover:bg-white/20"
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2 transition-all ${
+              isShapeToolActive ? "bg-[#4960E6] text-white shadow-md shadow-[#4960E6]/40" : "bg-white/10 text-white/90 hover:bg-white/20"
             }`}
             title={language === 'en' ? "Tools" : "Narzędzia"}
           >
@@ -3753,7 +3755,7 @@ export const SyncDualPlayer: React.FC = () => {
           </button>
 
           {isShapeToolActive && (
-            <div className="flex items-center gap-1 pl-1 border-l border-white/20">
+            <div className="flex items-center gap-1 pl-1.5 border-l border-white/20">
               <button
                 type="button"
                 onClick={(e) => {
@@ -3763,12 +3765,15 @@ export const SyncDualPlayer: React.FC = () => {
                   setActiveShape(null);
                 }}
                 className={`w-7 h-7 rounded-lg text-xs font-bold flex items-center justify-center transition-all ${
-                  activeShapeType === "arrow" ? "bg-red-500 text-white shadow-sm ring-2 ring-white/50" : "bg-white/20 text-white hover:bg-white/30"
+                  activeShapeType === "arrow" ? "bg-red-500 text-white shadow-sm ring-2 ring-red-400/50" : "bg-white/10 text-white/80 hover:bg-white/20"
                 }`}
-                title="Strzałka (➔)"
+                title="Strzałka"
               >
-                ➔
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 19.5l15-15m0 0H8.25m11.25 0v11.25" />
+                </svg>
               </button>
+
               <button
                 type="button"
                 onClick={(e) => {
@@ -3778,12 +3783,15 @@ export const SyncDualPlayer: React.FC = () => {
                   setActiveShape(null);
                 }}
                 className={`w-7 h-7 rounded-lg text-xs font-bold flex items-center justify-center transition-all ${
-                  activeShapeType === "circle" ? "bg-red-500 text-white shadow-sm ring-2 ring-white/50" : "bg-white/20 text-white hover:bg-white/30"
+                  activeShapeType === "circle" ? "bg-red-500 text-white shadow-sm ring-2 ring-red-400/50" : "bg-white/10 text-white/80 hover:bg-white/20"
                 }`}
-                title="Kółko (⭕)"
+                title="Kółko"
               >
-                ⭕
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <circle cx="12" cy="12" r="8" />
+                </svg>
               </button>
+
               <button
                 type="button"
                 onClick={(e) => {
@@ -3793,12 +3801,15 @@ export const SyncDualPlayer: React.FC = () => {
                   setActiveShape(null);
                 }}
                 className={`w-7 h-7 rounded-lg text-xs font-bold flex items-center justify-center transition-all ${
-                  activeShapeType === "rectangle" ? "bg-red-500 text-white shadow-sm ring-2 ring-white/50" : "bg-white/20 text-white hover:bg-white/30"
+                  activeShapeType === "rectangle" ? "bg-red-500 text-white shadow-sm ring-2 ring-red-400/50" : "bg-white/10 text-white/80 hover:bg-white/20"
                 }`}
-                title="Kwadrat / Prostokąt (🔲)"
+                title="Kwadrat / Prostokąt"
               >
-                🔲
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <rect x="4" y="4" width="16" height="16" rx="3" />
+                </svg>
               </button>
+
               <button
                 type="button"
                 onClick={(e) => {
@@ -3808,11 +3819,13 @@ export const SyncDualPlayer: React.FC = () => {
                   setActiveShape(null);
                 }}
                 className={`w-7 h-7 rounded-lg text-xs font-bold flex items-center justify-center transition-all ${
-                  activeShapeType === "text" ? "bg-red-500 text-white shadow-sm ring-2 ring-white/50" : "bg-white/20 text-white hover:bg-white/30"
+                  activeShapeType === "text" ? "bg-red-500 text-white shadow-sm ring-2 ring-red-400/50" : "bg-white/10 text-white/80 hover:bg-white/20"
                 }`}
-                title="Pole Tekstowe (T)"
+                title="Pole Tekstowe"
               >
-                T
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 7V4h16v3M12 4v16m-3 0h6" />
+                </svg>
               </button>
 
               <input
@@ -4672,40 +4685,6 @@ export const SyncDualPlayer: React.FC = () => {
             >
               <EyeDropperIcon className="w-5 h-5" />
             </button>
-
-            {/* Ruler Toggle */}
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => {
-                  setIsRulerActive(!isRulerActive);
-                  if (!isRulerActive) {
-                    setIsEyedropperActive(false);
-                    setEyedropperDrops([]);
-                  } else {
-                    setRulerLines([]);
-                    setActiveRulerLine(null);
-                  }
-                }}
-                disabled={!acceptanceFile && !emissionFile}
-                className={`w-10 h-10 flex items-center justify-center rounded-xl transition-colors disabled:opacity-100 disabled:text-white  ${
-                  isRulerActive 
-                    ? "bg-white text-[#4960E6]" 
-                    : "bg-[#4960E6] hover:bg-white hover:text-[#4960E6] text-white disabled:hover:bg-[#4960E6] disabled:hover:text-white"
-                }`}
-                title={isRulerActive ? t("turnOffRuler") : t("turnOnRuler")}
-              >
-                <RulerIcon className="w-5 h-5" />
-              </button>
-              {isRulerActive && (
-                <input
-                  type="color"
-                  value={rulerColor}
-                  onChange={(e) => setAnnotationColor(e.target.value)}
-                  className="w-6 h-6 p-0 border-0 rounded-full overflow-hidden cursor-pointer bg-transparent"
-                  title="Select ruler color"
-                />
-              )}
-            </div>
 
             {/* Ruler Toggle */}
             <div className="flex items-center gap-1">
