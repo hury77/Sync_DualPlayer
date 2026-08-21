@@ -1,4 +1,5 @@
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks, Request
+from config import settings
 from fastapi.responses import JSONResponse, StreamingResponse, FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,9 +18,50 @@ import numpy as np
 import base64
 import threading
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Dict
 import pandas as pd
 import io
+
+class FileUploadResponse(BaseModel):
+    file_id: int
+
+class FileMetadata(BaseModel):
+    transcode_progress: Optional[int] = None
+    conversion_time: Optional[float] = None
+
+class FileStatusResponse(BaseModel):
+    is_processed: bool
+    processing_error: Optional[str] = None
+    file_metadata: FileMetadata
+
+class DeleteFileResponse(BaseModel):
+    status: str
+    detail: str
+
+class UploadBriefResponse(BaseModel):
+    success: bool
+    message: str
+
+class ClearAssetsResponse(BaseModel):
+    success: bool
+    message: str
+
+class DebugAssetsResponse(BaseModel):
+    p1_exists: bool
+    cv_assets_dir: str
+    bing_std_path: str
+    bing_std_exists: bool
+    bing_imread_loaded: bool
+    bing_imdecode_loaded: bool
+    bing_imdecode_shape: Optional[list] = None
+    imdecode_err: Optional[str] = None
+    current_working_dir: str
+
+class CopydeckParseResponse(BaseModel):
+    success: bool
+    languages: Optional[List[str]] = None
+    data: Optional[Dict[str, Dict[str, str]]] = None
+    error: Optional[str] = None
 
 app = FastAPI(title="Sync DualPlayer API")
 
@@ -120,8 +162,12 @@ def transcode_to_mp4(input_path: Path, output_path: Path, file_id: int):
             files_db[file_id]["processing_error"] = str(e)
 
 
-@app.post("/api/v1/files/upload")
+@app.post("/api/v1/files/upload", response_model=FileUploadResponse)
 async def upload_file(background_tasks: BackgroundTasks, file: UploadFile = File(...), file_type: str = Form(...)):
+    ext = Path(file.filename).suffix.lower()
+    if ext not in [".mp4", ".mov", ".mxf", ".gif"]:
+        raise HTTPException(status_code=422, detail=f"Niedozwolony format pliku: {ext}. Dozwolone: .mp4, .mov, .mxf, .gif")
+        
     global file_counter
     file_id = file_counter
     file_counter += 1
@@ -131,12 +177,6 @@ async def upload_file(background_tasks: BackgroundTasks, file: UploadFile = File
     safe_filename = f"{Path(file.filename).stem}_{random_str}{ext}"
     file_path = UPLOAD_DIR / safe_filename
     
-    loop = asyncio.get_running_loop()
-    def save_file():
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-    await loop.run_in_executor(None, save_file)
-            
     files_db[file_id] = {
         "id": file_id,
         "filename": file.filename,
@@ -147,6 +187,18 @@ async def upload_file(background_tasks: BackgroundTasks, file: UploadFile = File
         "proxy_path": None
     }
     
+    loop = asyncio.get_running_loop()
+    def save_file():
+        try:
+            with open(file_path, "wb") as buffer:
+                shutil.copyfileobj(file.file, buffer)
+        except Exception as e:
+            print(f"CRITICAL ERROR [save_file]: Failed to write file stream to disk: {e}")
+            if file_id in files_db:
+                files_db[file_id]["processing_error"] = "Nie udało się zapisać przesłanego pliku wideo. Upewnij się, że dysk serwera nie jest pełny."
+                files_db[file_id]["is_processed"] = True
+    await loop.run_in_executor(None, save_file)
+            
     # If not mp4/webm, we must transcode
     if ext not in [".mp4", ".webm"]:
         proxy_path = UPLOAD_DIR / f"{Path(file.filename).stem}_{random_str}_proxy.mp4"
@@ -157,7 +209,7 @@ async def upload_file(background_tasks: BackgroundTasks, file: UploadFile = File
         
     return {"file_id": file_id}
 
-@app.get("/api/v1/files/{file_id}")
+@app.get("/api/v1/files/{file_id}", response_model=FileStatusResponse)
 async def get_file_status(file_id: int):
     if file_id not in files_db:
         raise HTTPException(status_code=404, detail="File not found")
@@ -172,7 +224,7 @@ async def get_file_status(file_id: int):
         }
     }
 
-@app.get("/api/v1/files/stream/{file_id}")
+@app.get("/api/v1/files/stream/{file_id}", response_class=FileResponse)
 async def stream_file(request: Request, file_id: int):
     if file_id not in files_db:
         raise HTTPException(status_code=404, detail="File not found")
@@ -185,7 +237,7 @@ async def stream_file(request: Request, file_id: int):
     
     return FileResponse(file_path, media_type="video/mp4", headers={"Accept-Ranges": "bytes"})
 
-@app.delete("/api/v1/files/{file_id}")
+@app.delete("/api/v1/files/{file_id}", response_model=DeleteFileResponse)
 async def delete_file(file_id: int):
     if file_id not in files_db:
         return {"status": "ignored", "detail": "File not found"}
@@ -197,14 +249,16 @@ async def delete_file(file_id: int):
         if f.get("path") and os.path.exists(f["path"]):
             os.remove(f["path"])
     except Exception as e:
-        print(f"Error removing file {f.get('path')}: {e}")
+        print(f"CRITICAL ERROR [delete_file]: Failed to remove file {f.get('path')}: {e}")
+        raise HTTPException(status_code=500, detail="Nie udało się usunąć pliku wideo. Sprawdź, czy plik nie jest używany przez inny proces. Jeśli problem się powtarza, skontaktuj się z administratorem.")
         
     # Usuwamy plik proxy (jeśli istnieje i jest inny niż źródłowy)
     try:
         if f.get("proxy_path") and f.get("proxy_path") != f.get("path") and os.path.exists(f["proxy_path"]):
             os.remove(f["proxy_path"])
     except Exception as e:
-        print(f"Error removing proxy file {f.get('proxy_path')}: {e}")
+        print(f"CRITICAL ERROR [delete_file]: Failed to remove proxy file {f.get('proxy_path')}: {e}")
+        raise HTTPException(status_code=500, detail="Nie udało się usunąć pliku wideo. Sprawdź, czy plik nie jest używany przez inny proces. Jeśli problem się powtarza, skontaktuj się z administratorem.")
         
     # Usuwamy wpis z bazy
     del files_db[file_id]
@@ -362,8 +416,12 @@ def match_template(image_np, template_path, threshold=0.8, return_score=False, f
         return best_max_val >= threshold, best_max_val
     return best_max_val >= threshold
 
-@app.post("/api/v1/brief/upload")
+@app.post("/api/v1/brief/upload", response_model=UploadBriefResponse)
 async def upload_brief(file: UploadFile = File(...)):
+    ext = Path(file.filename).suffix.lower()
+    if ext != ".xlsx":
+        raise HTTPException(status_code=422, detail="Wgrany plik nie jest prawidłowym plikiem Excel (.xlsx).")
+        
     try:
         contents = await file.read()
         
@@ -406,7 +464,7 @@ async def upload_brief(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/v1/clear-qa-assets")
+@app.post("/api/v1/clear-qa-assets", response_model=ClearAssetsResponse)
 async def clear_qa_assets():
     brief_path = UPLOAD_DIR / "current_brief.xlsx"
     copydeck_path = UPLOAD_DIR / "current_copydeck.xlsx"
@@ -418,13 +476,15 @@ async def clear_qa_assets():
         if brief_path.exists():
             os.remove(brief_path)
     except Exception as e:
-        print(f"Error removing brief: {e}")
+        print(f"CRITICAL ERROR [clear_qa_assets]: Failed to remove brief: {e}")
+        raise HTTPException(status_code=500, detail="Nie udało się wyczyścić plików tymczasowych (Brief/Copydeck) na serwerze. Sprawdź, czy zasób nie jest zablokowany, lub skontaktuj się z administratorem.")
         
     try:
         if copydeck_path.exists():
             os.remove(copydeck_path)
     except Exception as e:
-        print(f"Error removing copydeck: {e}")
+        print(f"CRITICAL ERROR [clear_qa_assets]: Failed to remove copydeck: {e}")
+        raise HTTPException(status_code=500, detail="Nie udało się wyczyścić plików tymczasowych (Brief/Copydeck) na serwerze. Sprawdź, czy zasób nie jest zablokowany, lub skontaktuj się z administratorem.")
         
     return {"success": True, "message": "LOC Brief and Copydeck cleared successfully"}
 
@@ -557,15 +617,18 @@ def get_cached_brief_data(brief_path_str: str, sheet_name: str, cv_assets_dir: P
         
         return reqs, icon_bytes, best_db_path
 
-@app.get("/api/v1/debug-assets")
+@app.get("/api/v1/debug-assets", response_model=DebugAssetsResponse)
 def debug_assets():
     import os
     import cv2
     import numpy as np
     from pathlib import Path
-    cv_assets_dir = Path("/Volumes/PL-EGplusww/Administrative and corporate files/DEPARTMENTS/QA/VITO/CV_Assets")
+    cv_assets_dir = Path(settings.cv_assets_path)
     bing_std = cv_assets_dir / "BING" / "9x16" / "Universal" / "shot1.png"
     img_imread = cv2.imread(str(bing_std)) if bing_std.exists() else None
+    if bing_std.exists() and img_imread is None:
+        print(f"ERROR [debug_assets]: cv2.imread returned None for {bing_std}")
+        raise HTTPException(status_code=400, detail="Nie udało się wczytać obrazu BING z dysku. Plik może być uszkodzony lub w nieobsługiwanym formacie.")
     
     img_imdecode = None
     imdecode_err = None
@@ -574,6 +637,9 @@ def debug_assets():
             with open(bing_std, "rb") as f:
                 b = f.read()
             img_imdecode = cv2.imdecode(np.frombuffer(b, np.uint8), cv2.IMREAD_COLOR)
+            if img_imdecode is None:
+                print(f"ERROR [debug_assets]: cv2.imdecode returned None for {bing_std}")
+                raise HTTPException(status_code=400, detail="Nie udało się zdekodować obrazu BING. Plik bazy może być uszkodzony.")
         except Exception as e:
             imdecode_err = str(e)
             
@@ -598,6 +664,9 @@ def analyze_elements(req: AnalyzeFrameRequest):
         img_data = base64.b64decode(req.image_base64.split(',')[1] if ',' in req.image_base64 else req.image_base64)
         nparr = np.frombuffer(img_data, np.uint8)
         img_np = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        if img_np is None:
+            print("ERROR [analyze_elements]: cv2.imdecode returned None for provided image_base64.")
+            raise HTTPException(status_code=400, detail="Nie udało się wczytać przesłanej klatki z wideo. Zdekodowany obraz jest uszkodzony lub ma nieobsługiwany format.")
         
         # 1. Parsowanie nazwy pliku
         try:
@@ -618,11 +687,11 @@ def analyze_elements(req: AnalyzeFrameRequest):
         if not os.path.exists(brief_path):
             raise HTTPException(status_code=400, detail="Błąd krytyczny QA: Brak wgranego Briefu! Wgraj najpierw plik LOC Brief (.xlsx).")
             
-        cv_assets_dir = Path("/Volumes/PL-EGplusww/Administrative and corporate files/DEPARTMENTS/QA/VITO/CV_Assets")
+        cv_assets_dir = Path(settings.cv_assets_path)
         if not cv_assets_dir.exists():
             raise HTTPException(
                 status_code=400,
-                detail="Błąd krytyczny: Dysk sieciowy PL-EGplusww nie jest zamontowany! Podłącz się do dysku sieciowego (Finder -> Go -> Connect to Server), aby pobrać szablony CV_Assets."
+                detail=f"Błąd krytyczny: Dysk sieciowy z bazą CV_Assets jest niedostępny (sprawdź ścieżkę: {cv_assets_dir}). Sprawdź połączenie sieciowe lub konfigurację .env."
             )
             
         sheet_name = lang_code if "-" in lang_code else f"{lang_code}-{lang_code}"
@@ -977,8 +1046,11 @@ def analyze_elements(req: AnalyzeFrameRequest):
             import time
             ts = int(time.time())
             cv2.imwrite(f"/tmp/debug_frame_{ts}.png", img_np)
-            with open("/tmp/vito_error.log", "a") as f:
-                f.write(f"Zapisano klatkę do /tmp/debug_frame_{ts}.png\n")
+            try:
+                with open("/tmp/vito_error.log", "a") as f:
+                    f.write(f"Zapisano klatkę do /tmp/debug_frame_{ts}.png\n")
+            except Exception:
+                pass
             print(f"DEBUG: Zapisano klatkę do /tmp/debug_frame_{ts}.png")
         
         return {
@@ -1000,14 +1072,21 @@ def analyze_elements(req: AnalyzeFrameRequest):
     except Exception as e:
         import traceback
         err_str = traceback.format_exc()
-        with open("/tmp/vito_error.log", "a") as f:
-            f.write(err_str + "\n")
+        try:
+            with open("/tmp/vito_error.log", "a") as f:
+                f.write(err_str + "\n")
+        except Exception:
+            pass
         print(err_str)
         return {"success": False, "error": str(e)}
 
 
-@app.post("/api/v1/copydeck/parse")
+@app.post("/api/v1/copydeck/parse", response_model=CopydeckParseResponse)
 async def parse_copydeck(file: UploadFile = File(...)):
+    ext = Path(file.filename).suffix.lower()
+    if ext not in [".xlsx", ".xls"]:
+        raise HTTPException(status_code=422, detail=f"Niedozwolony format pliku: {ext}. Wymagany: .xlsx lub .xls")
+        
     try:
         contents = await file.read()
         
