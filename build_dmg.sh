@@ -30,6 +30,7 @@ rm -rf "${SRC_DIR}/backend"
 mkdir -p "${SRC_DIR}/backend"
 cp backend/main.py "${SRC_DIR}/backend/"
 cp backend/parsers.py "${SRC_DIR}/backend/"
+cp backend/config.py "${SRC_DIR}/backend/"
 cp backend/requirements.txt "${SRC_DIR}/backend/"
 if [ -f "backend/ffmpeg" ]; then
     cp backend/ffmpeg "${SRC_DIR}/backend/"
