@@ -10,3 +10,6 @@ file_counter = 1
 
 _image_cache = {}
 _image_cache_lock = threading.Lock()
+
+_brief_cache = {}
+_brief_cache_lock = threading.Lock()

@@ -24,6 +24,7 @@ from models import (
 )
 import state
 import video_service
+import brief_service
 from copydeck_service import process_copydeck_file
 
 app = FastAPI(title="Sync DualPlayer API")
@@ -60,16 +61,8 @@ async def delete_file(file_id: int):
     return video_service.delete_file(file_id)
 
 
-from parsers import parse_filename, get_requirements_from_brief, ParserError, extract_rating_icon_from_brief
+from parsers import parse_filename, ParserError
 
-def get_cached_image(path_str):
-    with state._image_cache_lock:
-        if path_str in state._image_cache:
-            return state._image_cache[path_str]
-        img = cv2.imread(path_str, cv2.IMREAD_UNCHANGED)
-        if img is not None:
-            state._image_cache[path_str] = img
-        return img
 
 def match_template(image_np, template_path, threshold=0.8, return_score=False, force_coeff=False, min_scale=0.05, max_scale=1.5, crop_template=False):
     import cv2
@@ -78,7 +71,7 @@ def match_template(image_np, template_path, threshold=0.8, return_score=False, f
             return False, 0.0
         return False
         
-    template = get_cached_image(str(template_path))
+    template = brief_service.get_cached_image(str(template_path))
     if template is None:
         if return_score:
             return False, 0.0
@@ -202,242 +195,15 @@ def match_template(image_np, template_path, threshold=0.8, return_score=False, f
 
 @app.post("/api/v1/brief/upload", response_model=UploadBriefResponse)
 async def upload_brief(file: UploadFile = File(...)):
-    ext = Path(file.filename).suffix.lower()
-    if ext != ".xlsx":
-        raise HTTPException(status_code=422, detail="Wgrany plik nie jest prawidłowym plikiem Excel (.xlsx).")
-        
-    try:
-        contents = await file.read()
-        
-        # Walidacja pliku Excel
-        import io
-        import re
-        try:
-            xl = pd.ExcelFile(io.BytesIO(contents))
-            sheets = xl.sheet_names
-        except Exception:
-            raise HTTPException(status_code=400, detail="Wgrany plik nie jest prawidłowym plikiem Excel (.xlsx).")
-            
-        if not sheets:
-            raise HTTPException(status_code=400, detail="Wgrany plik Excel jest pusty.")
-            
-        # Wykrywanie Copydecka zamiast Briefu
-        if "Extended table" in sheets:
-            raise HTTPException(status_code=400, detail="Wgrany plik to prawdopodobnie Copydeck, a nie LOC Brief. Proszę wgrać właściwy plik LOC Brief (.xlsx).")
-            
-        # Sprawdzanie czy plik ma przynajmniej jedną zakładkę językową (np. FI-FI, PL-PL, JA, AR)
-        has_lang_sheet = False
-        for s in sheets:
-            clean_s = s.strip().upper()
-            if re.match(r'^[A-Z]{2}(-[A-Z]{2,4})?$', clean_s) or clean_s in ["JA", "ZH", "KO", "AR", "JA-JA", "KO-KO"]:
-                has_lang_sheet = True
-                break
-                
-        if not has_lang_sheet:
-            raise HTTPException(
-                status_code=400, 
-                detail="Wgrany plik nie wygląda na prawidłowy LOC Brief. Brak zakładek językowych (np. FI-FI, CA-FR, PL-PL)."
-            )
-            
-        brief_path = state.UPLOAD_DIR / "current_brief.xlsx"
-        with open(brief_path, "wb") as f:
-            f.write(contents)
-        return {"success": True, "message": "Brief uploaded successfully"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return await brief_service.process_upload_brief(file)
 
 @app.post("/api/v1/clear-qa-assets", response_model=ClearAssetsResponse)
 async def clear_qa_assets():
-    brief_path = state.UPLOAD_DIR / "current_brief.xlsx"
-    copydeck_path = state.UPLOAD_DIR / "current_copydeck.xlsx"
-    
-    with _brief_cache_lock:
-        _brief_cache.clear()
-        
-    try:
-        if brief_path.exists():
-            os.remove(brief_path)
-    except Exception as e:
-        print(f"CRITICAL ERROR [clear_qa_assets]: Failed to remove brief: {e}")
-        raise HTTPException(status_code=500, detail="Nie udało się wyczyścić plików tymczasowych (Brief/Copydeck) na serwerze. Sprawdź, czy zasób nie jest zablokowany, lub skontaktuj się z administratorem.")
-        
-    try:
-        if copydeck_path.exists():
-            os.remove(copydeck_path)
-    except Exception as e:
-        print(f"CRITICAL ERROR [clear_qa_assets]: Failed to remove copydeck: {e}")
-        raise HTTPException(status_code=500, detail="Nie udało się wyczyścić plików tymczasowych (Brief/Copydeck) na serwerze. Sprawdź, czy zasób nie jest zablokowany, lub skontaktuj się z administratorem.")
-        
-    return {"success": True, "message": "LOC Brief and Copydeck cleared successfully"}
-
-def get_base64_from_path(path_str):
-    if not path_str or not os.path.exists(path_str):
-        return None
-    try:
-        with open(path_str, "rb") as image_file:
-            return "data:image/png;base64," + base64.b64encode(image_file.read()).decode("utf-8")
-    except Exception:
-        return None
-
-def match_brief_icon_to_db(icon_bytes: bytes, rating_folder: Path, rating_age: str = None):
-    """
-    Używa algorytmu ORB do dopasowania ikony z briefu do bazy szablonów.
-    Zwraca krotkę (najlepsza_sciezka, wynik_dopasowania).
-    """
-    if not icon_bytes or not rating_folder.exists():
-        return None, 0
-        
-    try:
-        brief_img = cv2.imdecode(np.frombuffer(icon_bytes, np.uint8), cv2.IMREAD_COLOR)
-        if brief_img is None:
-            return None, 0
-            
-        bh, bw = brief_img.shape[:2]
-        
-        orb = cv2.ORB_create(nfeatures=500)
-        bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
-        
-        brief_gray = cv2.cvtColor(brief_img, cv2.COLOR_BGR2GRAY)
-        kp1, des1 = orb.detectAndCompute(brief_gray, None)
-        
-        if des1 is None:
-            return None, 0
-            
-        avg_brightness = brief_gray.mean()
-        bg_color = 0 if avg_brightness < 128 else 255
-        
-        best_score = 0
-        best_path = None
-        
-        # Filtrujemy szablony po kategorii wiekowej z briefu, aby unikać podwójnych ratingów
-        age_patterns = []
-        if rating_age:
-            age_str = str(rating_age).upper()
-            age_patterns = [age_str]
-            if age_str == "T":
-                age_patterns += ["TEEN"]
-            elif age_str == "E":
-                age_patterns += ["EVERYONE"]
-            elif age_str == "M":
-                age_patterns += ["MATURE"]
-            elif age_str == "E10+":
-                age_patterns += ["E10", "EVERYONE10"]
-        
-        for f in rating_folder.glob("*_cropped.png"):
-            if age_patterns:
-                base = f.name.replace('_cropped.png', '').replace('.png', '')
-                tokens = [t.upper() for t in base.split('_')]
-                # Odrzucamy podwójne szablony (np. B-B15 dla B15 lub B) przez dokładne dopasowanie tokenu
-                if not any(pat in tokens for pat in age_patterns):
-                    continue
-            template = get_cached_image(str(f))
-            if template is None:
-                continue
-                
-            if len(template.shape) == 3 and template.shape[2] == 4:
-                alpha = template[:,:,3:4] / 255.0
-                bgr = template[:,:,:3]
-                bg = np.ones_like(bgr) * bg_color
-                composited = (bgr * alpha + bg * (1 - alpha)).astype(np.uint8)
-            else:
-                composited = template
-                
-            resized = cv2.resize(composited, (bw, bh))
-            template_gray = cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY)
-            
-            kp2, des2 = orb.detectAndCompute(template_gray, None)
-            if des2 is None:
-                continue
-                
-            matches = bf.match(des1, des2)
-            if len(matches) == 0:
-                continue
-                
-            matches = sorted(matches, key=lambda x: x.distance)
-            good = [m for m in matches if m.distance < 50]
-            score = len(good) / max(len(kp1), 1)
-            
-            if score > best_score:
-                best_score = score
-                best_path = str(f)
-                
-        return best_path, best_score
-    except Exception as e:
-        print(f"Błąd podczas match_brief_icon_to_db: {e}")
-        return None, 0
-
-_brief_cache = {}
-_brief_cache_lock = threading.Lock()
-
-def get_cached_brief_data(brief_path_str: str, sheet_name: str, cv_assets_dir: Path):
-    cache_key = f"{brief_path_str}_{sheet_name}"
-    mtime = os.path.getmtime(brief_path_str) if os.path.exists(brief_path_str) else 0
-    
-    with _brief_cache_lock:
-        if cache_key in _brief_cache and _brief_cache[cache_key]['mtime'] == mtime:
-            return _brief_cache[cache_key]['reqs'], _brief_cache[cache_key]['icon_bytes'], _brief_cache[cache_key]['best_db_path']
-        
-        reqs = get_requirements_from_brief(brief_path_str, sheet_name)
-        
-        # Calculate rating folder here
-        rating_org = reqs.get("RATING", "PEGI")
-        RATING_ORG_MAP = {"SEGOB": "MX", "CLASSIND": "BR", "GRAC": "KR", "OFLC": "AUS"}
-        mapped_org = RATING_ORG_MAP.get(rating_org.upper(), rating_org)
-        rating_folder = cv_assets_dir / "RATINGS" / mapped_org
-        
-        icon_bytes = extract_rating_icon_from_brief(brief_path_str, sheet_name)
-        best_db_path = None
-        if icon_bytes:
-            best_db_path, _ = match_brief_icon_to_db(icon_bytes, rating_folder, rating_age=reqs.get("AGE"))
-            
-        _brief_cache[cache_key] = {
-            'mtime': mtime,
-            'reqs': reqs,
-            'icon_bytes': icon_bytes,
-            'best_db_path': best_db_path
-        }
-        
-        return reqs, icon_bytes, best_db_path
+    return brief_service.process_clear_qa_assets()
 
 @app.get("/api/v1/debug-assets", response_model=DebugAssetsResponse)
 def debug_assets():
-    import os
-    import cv2
-    import numpy as np
-    from pathlib import Path
-    cv_assets_dir = Path(settings.cv_assets_path)
-    bing_std = cv_assets_dir / "BING" / "9x16" / "Universal" / "shot1.png"
-    img_imread = cv2.imread(str(bing_std)) if bing_std.exists() else None
-    if bing_std.exists() and img_imread is None:
-        print(f"ERROR [debug_assets]: cv2.imread returned None for {bing_std}")
-        raise HTTPException(status_code=400, detail="Nie udało się wczytać obrazu BING z dysku. Plik może być uszkodzony lub w nieobsługiwanym formacie.")
-    
-    img_imdecode = None
-    imdecode_err = None
-    if bing_std.exists():
-        try:
-            with open(bing_std, "rb") as f:
-                b = f.read()
-            img_imdecode = cv2.imdecode(np.frombuffer(b, np.uint8), cv2.IMREAD_COLOR)
-            if img_imdecode is None:
-                print(f"ERROR [debug_assets]: cv2.imdecode returned None for {bing_std}")
-                raise HTTPException(status_code=400, detail="Nie udało się zdekodować obrazu BING. Plik bazy może być uszkodzony.")
-        except Exception as e:
-            imdecode_err = str(e)
-            
-    return {
-        "p1_exists": cv_assets_dir.exists(),
-        "cv_assets_dir": str(cv_assets_dir),
-        "bing_std_path": str(bing_std),
-        "bing_std_exists": bing_std.exists(),
-        "bing_imread_loaded": img_imread is not None,
-        "bing_imdecode_loaded": img_imdecode is not None,
-        "bing_imdecode_shape": img_imdecode.shape if img_imdecode is not None else None,
-        "imdecode_err": imdecode_err,
-        "current_working_dir": os.getcwd(),
-    }
+    return brief_service.process_debug_assets()
 
 @app.post("/api/v1/analyze-elements")
 def analyze_elements(req: AnalyzeFrameRequest):
@@ -482,7 +248,7 @@ def analyze_elements(req: AnalyzeFrameRequest):
         
         # Get everything from cache
         try:
-            reqs, icon_bytes, best_db_path = get_cached_brief_data(brief_path, sheet_name, cv_assets_dir)
+            reqs, icon_bytes, best_db_path = brief_service.get_cached_brief_data(brief_path, sheet_name, cv_assets_dir)
         except ParserError as e:
             raise HTTPException(status_code=400, detail=str(e))
             
@@ -673,7 +439,7 @@ def analyze_elements(req: AnalyzeFrameRequest):
         allowed_results = []
         for rp in rating_paths_to_check:
             try:
-                tmp_img = get_cached_image(rp)
+                tmp_img = brief_service.get_cached_image(rp)
                 th = tmp_img.shape[0] if tmp_img is not None else 800
             except:
                 th = 800
@@ -682,7 +448,7 @@ def analyze_elements(req: AnalyzeFrameRequest):
             matched, score = match_template(img_rating, rp, return_score=True, force_coeff=False, min_scale=min_sc, max_scale=max_sc)
             if score > 0.4:
                 try:
-                    tmp_img = get_cached_image(rp)
+                    tmp_img = brief_service.get_cached_image(rp)
                     ar = tmp_img.shape[1] / float(tmp_img.shape[0]) if tmp_img is not None else 1.0
                 except:
                     ar = 1.0
@@ -742,7 +508,7 @@ def analyze_elements(req: AnalyzeFrameRequest):
                     # Porównujemy tylko warianty obcojęzyczne (np. FR vs EN)
                     if exp_is_fr_sp != comp_is_fr_sp:
                         try:
-                            tmp_img = get_cached_image(str(f))
+                            tmp_img = brief_service.get_cached_image(str(f))
                             th = tmp_img.shape[0] if tmp_img is not None else 800
                         except:
                             th = 800
@@ -767,7 +533,7 @@ def analyze_elements(req: AnalyzeFrameRequest):
                     if gp in rating_paths_to_check:
                         continue
                     try:
-                        tmp_img = get_cached_image(gp)
+                        tmp_img = brief_service.get_cached_image(gp)
                         th = tmp_img.shape[0] if tmp_img is not None else 800
                     except:
                         th = 800
@@ -816,14 +582,14 @@ def analyze_elements(req: AnalyzeFrameRequest):
         bong_path_used = next((bp for bp in paths_to_check if match_template(img_np, bp)), None)
 
         # Prepare base64 images of expected templates
-        expected_rating_b64 = get_base64_from_path(rating_paths_to_check[0] if rating_paths_to_check else None)
-        found_rating_b64 = get_base64_from_path(rating_path_used) if rating_path_used else None
+        expected_rating_b64 = brief_service.get_base64_from_path(rating_paths_to_check[0] if rating_paths_to_check else None)
+        found_rating_b64 = brief_service.get_base64_from_path(rating_path_used) if rating_path_used else None
         
-        expected_bong_b64 = get_base64_from_path(paths_to_check[0] if paths_to_check else None)
-        found_bong_b64 = get_base64_from_path(bong_path_used) if bong_path_used else None
+        expected_bong_b64 = brief_service.get_base64_from_path(paths_to_check[0] if paths_to_check else None)
+        found_bong_b64 = brief_service.get_base64_from_path(bong_path_used) if bong_path_used else None
         
-        expected_bing_b64 = get_base64_from_path(bing_path)
-        found_bing_b64 = get_base64_from_path(bing_path) if has_bing else None
+        expected_bing_b64 = brief_service.get_base64_from_path(bing_path)
+        found_bing_b64 = brief_service.get_base64_from_path(bing_path) if has_bing else None
         
         # Debug: Save frames if something is missing
         if not (has_rating and has_bing and has_bong):
