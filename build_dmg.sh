@@ -28,16 +28,16 @@ cp -r frontend/dist "${SRC_DIR}/frontend_dist"
 echo "📂 Aktualizacja skryptów backendu w .app..."
 rm -rf "${SRC_DIR}/backend"
 mkdir -p "${SRC_DIR}/backend"
-cp backend/main.py "${SRC_DIR}/backend/"
-cp backend/parsers.py "${SRC_DIR}/backend/"
-cp backend/config.py "${SRC_DIR}/backend/"
-cp backend/requirements.txt "${SRC_DIR}/backend/"
-if [ -f "backend/ffmpeg" ]; then
-    cp backend/ffmpeg "${SRC_DIR}/backend/"
-fi
-if [ -d "backend/templates" ]; then
-    cp -r backend/templates "${SRC_DIR}/backend/"
-fi
+rsync -av --exclude='__pycache__' \
+          --exclude='venv' \
+          --exclude='.env*' \
+          --exclude='uploads' \
+          --exclude='CV_Assets' \
+          --exclude='test_*.py' \
+          --exclude='old_*.py' \
+          --exclude='generate_*.py' \
+          --exclude='*.log' \
+          backend/ "${SRC_DIR}/backend/"
 
 # Zapisujemy wersję do pliku
 echo "${APP_VERSION}" > "${SRC_DIR}/backend/version.txt"
