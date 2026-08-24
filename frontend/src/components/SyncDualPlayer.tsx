@@ -881,7 +881,7 @@ const CODE_TO_COPYDECK_LANG: Record<string, string> = {
               if (meta.detectedLanguage) {
                 const tessLang = LANGUAGE_TO_TESSERACT[meta.detectedLanguage] || LANGUAGE_TO_TESSERACT[meta.detectedLanguage.replace(/\s*\(.*?\)\s*/g, "")] || "";
                 if (tessLang) {
-                  setOcrLanguage(`eng+${tessLang}`);
+                  setOcrLanguage(tessLang);
                 }
                 if (!selectedCopydeckLanguage) {
                   setSelectedCopydeckLanguage(meta.detectedLanguage);
@@ -1016,8 +1016,7 @@ const CODE_TO_COPYDECK_LANG: Record<string, string> = {
           // Set OCR language
           const tessLang = LANGUAGE_TO_TESSERACT[meta.detectedLanguage] || LANGUAGE_TO_TESSERACT[meta.detectedLanguage.replace(/\s*\(.*?\)\s*/g, "")] || "";
           if (tessLang) {
-            // Include English fallback usually requested by OCR
-            setOcrLanguage(`eng+${tessLang}`);
+            setOcrLanguage(tessLang);
           }
           // Set Copydeck tab language if not set
           if (!selectedCopydeckLanguage) {
