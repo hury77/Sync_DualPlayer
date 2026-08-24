@@ -883,9 +883,7 @@ const CODE_TO_COPYDECK_LANG: Record<string, string> = {
                 if (tessLang) {
                   setOcrLanguage(tessLang);
                 }
-                if (!selectedCopydeckLanguage) {
-                  setSelectedCopydeckLanguage(meta.detectedLanguage);
-                }
+                setSelectedCopydeckLanguage(meta.detectedLanguage);
               }
 
               if (activePollsRef.current.acceptance) {
@@ -1018,10 +1016,8 @@ const CODE_TO_COPYDECK_LANG: Record<string, string> = {
           if (tessLang) {
             setOcrLanguage(tessLang);
           }
-          // Set Copydeck tab language if not set
-          if (!selectedCopydeckLanguage) {
-            setSelectedCopydeckLanguage(meta.detectedLanguage);
-          }
+          // Set Copydeck tab language
+          setSelectedCopydeckLanguage(meta.detectedLanguage);
         }
       } else {
         cleanUpFile(emissionFile);
