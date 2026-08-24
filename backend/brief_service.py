@@ -172,8 +172,9 @@ async def process_upload_brief(file: UploadFile):
             raise HTTPException(status_code=400, detail="Wgrany plik to prawdopodobnie Copydeck, a nie LOC Brief. Proszę wgrać właściwy plik LOC Brief (.xlsx).")
             
         copydeck_data = None
-        if "COPY DECK" in sheets:
-            copydeck_data = parse_copydeck_from_bytes(contents, sheet_name="COPY DECK")
+        copydeck_sheet_name = next((s for s in sheets if s.strip().upper().replace(" ", "") == "COPYDECK"), None)
+        if copydeck_sheet_name:
+            copydeck_data = parse_copydeck_from_bytes(contents, sheet_name=copydeck_sheet_name)
             
         # Sprawdzanie czy plik ma przynajmniej jedną zakładkę językową (np. FI-FI, PL-PL, JA, AR)
         has_lang_sheet = False
