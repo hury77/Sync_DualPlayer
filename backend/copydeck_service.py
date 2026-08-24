@@ -2,14 +2,12 @@ import io
 import pandas as pd
 from fastapi import UploadFile
 
-async def process_copydeck_file(file: UploadFile) -> dict:
+def parse_copydeck_from_bytes(contents: bytes, sheet_name=0) -> dict:
     try:
-        contents = await file.read()
-        
         # Read excel file
         # We try to read it assuming headers might be on row 1 or 2
         # A robust way is to read the whole thing and find the header row containing "Source"
-        df = pd.read_excel(io.BytesIO(contents), header=None)
+        df = pd.read_excel(io.BytesIO(contents), header=None, sheet_name=sheet_name)
         
         # Find the header row (the one that contains actual language names)
         header_row_idx = 0
@@ -27,7 +25,7 @@ async def process_copydeck_file(file: UploadFile) -> dict:
                 # Do NOT break immediately. The NEXT row might contain the actual languages!
                 
         # Re-read with correct header
-        df = pd.read_excel(io.BytesIO(contents), header=header_row_idx)
+        df = pd.read_excel(io.BytesIO(contents), header=header_row_idx, sheet_name=sheet_name)
         
         # Clean column names
         df.columns = df.columns.astype(str).str.strip()
@@ -67,3 +65,7 @@ async def process_copydeck_file(file: UploadFile) -> dict:
         import traceback
         traceback.print_exc()
         return {"success": False, "error": str(e)}
+
+async def process_copydeck_file(file: UploadFile) -> dict:
+    contents = await file.read()
+    return parse_copydeck_from_bytes(contents)

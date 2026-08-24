@@ -10,6 +10,7 @@ from fastapi import UploadFile, HTTPException
 import state
 from config import settings
 from parsers import get_requirements_from_brief, extract_rating_icon_from_brief
+from copydeck_service import parse_copydeck_from_bytes
 
 def get_cached_image(path_str):
     with state._image_cache_lock:
@@ -170,6 +171,10 @@ async def process_upload_brief(file: UploadFile):
         if "Extended table" in sheets:
             raise HTTPException(status_code=400, detail="Wgrany plik to prawdopodobnie Copydeck, a nie LOC Brief. Proszę wgrać właściwy plik LOC Brief (.xlsx).")
             
+        copydeck_data = None
+        if "COPY DECK" in sheets:
+            copydeck_data = parse_copydeck_from_bytes(contents, sheet_name="COPY DECK")
+            
         # Sprawdzanie czy plik ma przynajmniej jedną zakładkę językową (np. FI-FI, PL-PL, JA, AR)
         has_lang_sheet = False
         for s in sheets:
@@ -187,7 +192,12 @@ async def process_upload_brief(file: UploadFile):
         brief_path = state.UPLOAD_DIR / "current_brief.xlsx"
         with open(brief_path, "wb") as f:
             f.write(contents)
-        return {"success": True, "message": "Brief uploaded successfully"}
+            
+        response = {"success": True, "message": "Brief uploaded successfully"}
+        if copydeck_data and copydeck_data.get("success"):
+            response["copydeck_data"] = copydeck_data
+            
+        return response
     except HTTPException:
         raise
     except Exception as e:

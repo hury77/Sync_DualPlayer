@@ -20,6 +20,7 @@ class DeleteFileResponse(BaseModel):
 class UploadBriefResponse(BaseModel):
     success: bool
     message: str
+    copydeck_data: Optional[Dict] = None
 
 class ClearAssetsResponse(BaseModel):
     success: bool

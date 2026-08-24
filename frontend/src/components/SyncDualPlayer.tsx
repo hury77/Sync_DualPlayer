@@ -453,6 +453,12 @@ export const SyncDualPlayer: React.FC = () => {
       if (res.ok && json.success) {
         setIsBriefUploaded(true);
         // Opcjonalnie mały alert lub toast, my polegamy na zmianie tekstu na przycisku
+        
+        // Jeśli Brief zawierał również Copydeck, automatycznie go wczytujemy
+        if (json.copydeck_data) {
+          setCopydeckData(json.copydeck_data);
+          // Można dodać info do użytkownika, jeśli to potrzebne
+        }
       } else {
         alert("Błąd wgrywania Briefu: " + (json.detail || json.error || "Nieznany błąd serwera."));
       }
