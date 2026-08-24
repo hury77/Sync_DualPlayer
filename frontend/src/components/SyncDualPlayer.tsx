@@ -499,15 +499,55 @@ export const SyncDualPlayer: React.FC = () => {
     }
   };
 
+const CODE_TO_COPYDECK_LANG: Record<string, string> = {
+  "PL": "Polish", "PL-PL": "Polish",
+  "EN": "English", "US": "English", "UK": "United Kingdom",
+  "HR": "Croatian",
+  "AR": "Arabic",
+  "CN": "Chinese (Simplified)", "ZH": "Chinese (Simplified)",
+  "TW": "Chinese (Traditional)",
+  "HK": "HONG KONG",
+  "FR": "French", "FR-FR": "French",
+  "DE": "German", "DE-DE": "German",
+  "IT": "Italian", "IT-IT": "Italian",
+  "ES": "Spanish", "ES-ES": "Spanish", "MX": "Spanish (Latin America)",
+  "PT": "Portuguese", "BR": "Portuguese (Brazil)",
+  "NL": "Dutch",
+  "FI": "Finnish",
+  "DK": "Danish",
+  "NO": "Norwegian",
+  "SE": "Swedish", "SV": "Swedish",
+  "CZ": "Czech",
+  "GR": "Greek",
+  "HU": "Hungarian",
+  "RO": "Romanian",
+  "TR": "Turkish",
+  "JP": "Japanese", "JA": "Japanese",
+  "KR": "Korean", "KO": "Korean",
+  "RU": "Russian"
+};
+
   const parseFilenameMetadata = (filename: string) => {
     const parts = filename.split('_');
     let country = "Unknown";
     let rating = "Unknown";
     let bing = "PS Logo";
     let bong = "Standard";
+    let detectedLanguage = "";
     
     if (parts.length > 1) {
       country = parts[1];
+      
+      const cc = country.toUpperCase();
+      if (CODE_TO_COPYDECK_LANG[cc]) {
+         detectedLanguage = CODE_TO_COPYDECK_LANG[cc];
+      } else if (parts.length > 2) {
+         const cc2 = parts[2].toUpperCase();
+         if (CODE_TO_COPYDECK_LANG[cc2]) {
+            detectedLanguage = CODE_TO_COPYDECK_LANG[cc2];
+         }
+      }
+
       if (country.includes("FR") || country.includes("CA") || country.includes("US")) {
         rating = "ESRB Teen";
       } else {
@@ -517,7 +557,7 @@ export const SyncDualPlayer: React.FC = () => {
         bong = "French";
       }
     }
-    return { country, rating, bing, bong };
+    return { country, rating, bing, bong, detectedLanguage };
   };
 
   const runPlaystationQA = async () => {
@@ -836,6 +876,18 @@ export const SyncDualPlayer: React.FC = () => {
               setAcceptanceLoading(false);
               setAcceptanceProgress(null);
               setAcceptanceLoadingMessage("");
+              
+              const meta = parseFilenameMetadata(newFile.name);
+              if (meta.detectedLanguage) {
+                const tessLang = LANGUAGE_TO_TESSERACT[meta.detectedLanguage] || LANGUAGE_TO_TESSERACT[meta.detectedLanguage.replace(/\s*\(.*?\)\s*/g, "")] || "";
+                if (tessLang) {
+                  setOcrLanguage(`eng+${tessLang}`);
+                }
+                if (!selectedCopydeckLanguage) {
+                  setSelectedCopydeckLanguage(meta.detectedLanguage);
+                }
+              }
+
               if (activePollsRef.current.acceptance) {
                 clearTimeout(activePollsRef.current.acceptance);
                 activePollsRef.current.acceptance = undefined;
@@ -958,6 +1010,20 @@ export const SyncDualPlayer: React.FC = () => {
         cleanUpFile(acceptanceFile);
         setAcceptanceFile(newFile);
         setAcceptanceError(null);
+        
+        const meta = parseFilenameMetadata(newFile.name);
+        if (meta.detectedLanguage) {
+          // Set OCR language
+          const tessLang = LANGUAGE_TO_TESSERACT[meta.detectedLanguage] || LANGUAGE_TO_TESSERACT[meta.detectedLanguage.replace(/\s*\(.*?\)\s*/g, "")] || "";
+          if (tessLang) {
+            // Include English fallback usually requested by OCR
+            setOcrLanguage(`eng+${tessLang}`);
+          }
+          // Set Copydeck tab language if not set
+          if (!selectedCopydeckLanguage) {
+            setSelectedCopydeckLanguage(meta.detectedLanguage);
+          }
+        }
       } else {
         cleanUpFile(emissionFile);
         setEmissionFile(newFile);
