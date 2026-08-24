@@ -298,6 +298,13 @@ export const SyncDualPlayer: React.FC = () => {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      const activeElement = document.activeElement as HTMLElement;
+      if (activeElement) {
+        const tag = activeElement.tagName.toLowerCase();
+        if (tag === 'input' || tag === 'textarea' || activeElement.isContentEditable) {
+          return;
+        }
+      }
       if ((e.key === "Delete" || e.key === "Backspace") && selectedShapeId) {
         setShapeLines(prev => prev.filter(s => s.id !== selectedShapeId));
         setSelectedShapeId(null);
@@ -366,8 +373,8 @@ export const SyncDualPlayer: React.FC = () => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [acceptanceVolume, setAcceptanceVolume] = useState(1);
-  const [emissionVolume, setEmissionVolume] = useState(1);
+  const [acceptanceVolume, setAcceptanceVolume] = useState(0.5);
+  const [emissionVolume, setEmissionVolume] = useState(0.5);
   const [isMuted, setIsMuted] = useState(false);
 
   // Drag-and-drop highlighting states
