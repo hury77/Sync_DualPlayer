@@ -735,7 +735,16 @@ export const SyncDualPlayer: React.FC = () => {
       const apiBase = ''; 
       fetch(`${apiBase}/api/v1/files/${file.fileId}`, {
         method: 'DELETE',
-      }).catch(err => console.error("Error deleting file:", err));
+      })
+      .then(res => {
+        if (!res.ok) {
+          alert(`Nie udało się usunąć poprzedniego pliku z serwera (kod: ${res.status}) - może wymagać ręcznego usunięcia.`);
+        }
+      })
+      .catch(err => {
+        console.error("Error deleting file:", err);
+        alert("Nie udało się połączyć z serwerem, aby usunąć poprzedni plik - może wymagać ręcznego usunięcia.");
+      });
     }
   };
 
@@ -1099,7 +1108,19 @@ export const SyncDualPlayer: React.FC = () => {
     setCurrentTime(0);
   };
 
-  const handleClear = () => {
+  const handleClear = async () => {
+    try {
+      const res = await fetch("/api/v1/clear-qa-assets", { method: "POST" });
+      if (!res.ok) {
+        alert("Błąd podczas czyszczenia zasobów na serwerze (kod " + res.status + "). Operacja przerwana.");
+        return;
+      }
+    } catch (err) {
+      console.error("Error clearing QA assets:", err);
+      alert("Błąd sieci podczas czyszczenia zasobów na serwerze. Operacja przerwana.");
+      return;
+    }
+
     handleStop();
     
     // Clear any active transcode polling timers to prevent leaks
@@ -1150,10 +1171,6 @@ export const SyncDualPlayer: React.FC = () => {
     setCopydeckData(null);
     if (briefInputRef.current) briefInputRef.current.value = "";
     if (copydeckInputRef.current) copydeckInputRef.current.value = "";
-    
-    fetch("/api/v1/clear-qa-assets", {
-      method: "POST"
-    }).catch(err => console.error("Error clearing QA assets:", err));
   };
 
   const getMouseSourceCoordinates = (clientX: number, clientY: number, videoRef: React.RefObject<HTMLVideoElement | null>) => {
