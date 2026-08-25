@@ -24,6 +24,7 @@ import { diffWords, diffChars } from "diff";
 import { jsPDF } from "jspdf";
 import { robotoBase64 } from "../utils/Roboto-Regular";
 import html2canvas from "html2canvas";
+import { detectLanguageFromFilename, LANGUAGE_TO_TESSERACT } from "../utils/languageDetection";
 
 const RulerIcon = ({ className }: { className?: string }) => (
   <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -86,39 +87,7 @@ interface ReportItem {
   ocrBriefText?: string;
 }
 
-const LANGUAGE_TO_TESSERACT: Record<string, string> = {
-  "Arabic": "ara",
-  "Chinese (Simplified)": "chi_sim",
-  "Chinese (Traditional)": "chi_tra",
-  "Croatian": "hrv",
-  "Czech": "ces",
-  "Danish": "dan",
-  "Dutch": "nld",
-  "English": "eng",
-  "English (UK/ANZ/UAE/ASIA)": "eng",
-  "Finnish": "fin",
-  "French": "fra",
-  "French (Canada)": "fra",
-  "French (France)": "fra",
-  "German": "deu",
-  "German (Germany)": "deu",
-  "Greek": "ell",
-  "Hungarian": "hun",
-  "Italian": "ita",
-  "Japanese": "jpn",
-  "Korean": "kor",
-  "Norwegian": "nor",
-  "Polish": "pol",
-  "Portuguese": "por",
-  "Portuguese (Brazil)": "por",
-  "Romanian": "ron",
-  "Russian": "rus",
-  "Spanish": "spa",
-  "Spanish (Latin America)": "spa",
-  "Spanish (Spain)": "spa",
-  "Swedish": "swe",
-  "Turkish": "tur",
-};
+
 
 const normalizeTextForDiff = (text: string) => {
   if (!text) return "";
