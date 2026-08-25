@@ -17,6 +17,7 @@ import {
   DocumentTextIcon,
   SunIcon,
   MoonIcon,
+  ExclamationTriangleIcon,
 } from "@heroicons/react/24/outline";
 import Tesseract from "tesseract.js";
 import { diffWords, diffChars } from "diff";
@@ -429,6 +430,36 @@ export const SyncDualPlayer: React.FC = () => {
   const [selectedCopydeckLanguage, setSelectedCopydeckLanguage] = useState<string>("");
   const [isUploadingCopydeck, setIsUploadingCopydeck] = useState(false);
   const copydeckInputRef = useRef<HTMLInputElement>(null);
+  const [ocrDetectionConfidence, setOcrDetectionConfidence] = useState<'HIGH' | 'UNCERTAIN' | 'NONE'>('NONE');
+
+  // Synchronize rows and OCR when data or language changes programmatically
+  useEffect(() => {
+    if (copydeckData && copydeckData.data) {
+      let langToSelect = selectedCopydeckLanguage;
+      
+      // If the selected language doesn't exactly match a tab, try to find a case-insensitive match
+      if (langToSelect && !copydeckData.data[langToSelect]) {
+        const matchingLang = copydeckData.languages.find((l: string) => l.toLowerCase() === langToSelect.toLowerCase());
+        if (matchingLang) {
+           langToSelect = matchingLang;
+           setSelectedCopydeckLanguage(matchingLang);
+        }
+      }
+
+      if (langToSelect && copydeckData.data[langToSelect]) {
+        const translations = Object.values(copydeckData.data[langToSelect]) as string[];
+        setAvailableCopydeckLines(translations);
+        if (translations.length > 0) {
+          setOcrBriefText(translations[0]);
+        } else {
+          setOcrBriefText("");
+        }
+      } else {
+        setAvailableCopydeckLines([]);
+        setOcrBriefText("");
+      }
+    }
+  }, [copydeckData, selectedCopydeckLanguage]);
 
   // ── LOC Brief State ──────────────────────────────────────────────────
   const [isBriefUploaded, setIsBriefUploaded] = useState(false);
@@ -499,55 +530,16 @@ export const SyncDualPlayer: React.FC = () => {
     }
   };
 
-const CODE_TO_COPYDECK_LANG: Record<string, string> = {
-  "PL": "Polish", "PL-PL": "Polish",
-  "EN": "English", "US": "English", "UK": "United Kingdom",
-  "HR": "Croatian",
-  "AR": "Arabic",
-  "CN": "Chinese (Simplified)", "ZH": "Chinese (Simplified)",
-  "TW": "Chinese (Traditional)",
-  "HK": "HONG KONG",
-  "FR": "French", "FR-FR": "French",
-  "DE": "German", "DE-DE": "German",
-  "IT": "Italian", "IT-IT": "Italian",
-  "ES": "Spanish", "ES-ES": "Spanish", "MX": "Spanish (Latin America)",
-  "PT": "Portuguese", "BR": "Portuguese (Brazil)",
-  "NL": "Dutch",
-  "FI": "Finnish",
-  "DK": "Danish",
-  "NO": "Norwegian",
-  "SE": "Swedish", "SV": "Swedish",
-  "CZ": "Czech",
-  "GR": "Greek",
-  "HU": "Hungarian",
-  "RO": "Romanian",
-  "TR": "Turkish",
-  "JP": "Japanese", "JA": "Japanese",
-  "KR": "Korean", "KO": "Korean",
-  "RU": "Russian"
-};
-
   const parseFilenameMetadata = (filename: string) => {
     const parts = filename.split('_');
     let country = "Unknown";
     let rating = "Unknown";
     let bing = "PS Logo";
     let bong = "Standard";
-    let detectedLanguage = "";
     
     if (parts.length > 1) {
       country = parts[1];
       
-      const cc = country.toUpperCase();
-      if (CODE_TO_COPYDECK_LANG[cc]) {
-         detectedLanguage = CODE_TO_COPYDECK_LANG[cc];
-      } else if (parts.length > 2) {
-         const cc2 = parts[2].toUpperCase();
-         if (CODE_TO_COPYDECK_LANG[cc2]) {
-            detectedLanguage = CODE_TO_COPYDECK_LANG[cc2];
-         }
-      }
-
       if (country.includes("FR") || country.includes("CA") || country.includes("US")) {
         rating = "ESRB Teen";
       } else {
@@ -557,7 +549,7 @@ const CODE_TO_COPYDECK_LANG: Record<string, string> = {
         bong = "French";
       }
     }
-    return { country, rating, bing, bong, detectedLanguage };
+    return { country, rating, bing, bong };
   };
 
   const runPlaystationQA = async () => {
@@ -877,13 +869,15 @@ const CODE_TO_COPYDECK_LANG: Record<string, string> = {
               setAcceptanceProgress(null);
               setAcceptanceLoadingMessage("");
               
-              const meta = parseFilenameMetadata(newFile.name);
-              if (meta.detectedLanguage) {
-                const tessLang = LANGUAGE_TO_TESSERACT[meta.detectedLanguage] || LANGUAGE_TO_TESSERACT[meta.detectedLanguage.replace(/\s*\(.*?\)\s*/g, "")] || "";
-                if (tessLang) {
-                  setOcrLanguage(tessLang);
+              const availableTabs = copydeckData?.languages || [];
+              const matchResult = detectLanguageFromFilename(newFile.name, availableTabs);
+              
+              setOcrDetectionConfidence(matchResult.confidence);
+              if (matchResult.detectedTab) {
+                if (matchResult.tesseractLang) {
+                  setOcrLanguage(matchResult.tesseractLang);
                 }
-                setSelectedCopydeckLanguage(meta.detectedLanguage);
+                setSelectedCopydeckLanguage(matchResult.detectedTab);
               }
 
               if (activePollsRef.current.acceptance) {
@@ -1009,15 +1003,15 @@ const CODE_TO_COPYDECK_LANG: Record<string, string> = {
         setAcceptanceFile(newFile);
         setAcceptanceError(null);
         
-        const meta = parseFilenameMetadata(newFile.name);
-        if (meta.detectedLanguage) {
-          // Set OCR language
-          const tessLang = LANGUAGE_TO_TESSERACT[meta.detectedLanguage] || LANGUAGE_TO_TESSERACT[meta.detectedLanguage.replace(/\s*\(.*?\)\s*/g, "")] || "";
-          if (tessLang) {
-            setOcrLanguage(tessLang);
+        const availableTabs = copydeckData?.languages || [];
+        const matchResult = detectLanguageFromFilename(newFile.name, availableTabs);
+        
+        setOcrDetectionConfidence(matchResult.confidence);
+        if (matchResult.detectedTab) {
+          if (matchResult.tesseractLang) {
+            setOcrLanguage(matchResult.tesseractLang);
           }
-          // Set Copydeck tab language
-          setSelectedCopydeckLanguage(meta.detectedLanguage);
+          setSelectedCopydeckLanguage(matchResult.detectedTab);
         }
       } else {
         cleanUpFile(emissionFile);
@@ -5064,36 +5058,40 @@ const CODE_TO_COPYDECK_LANG: Record<string, string> = {
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Brief text</label>
                 {copydeckData && copydeckData.languages && copydeckData.languages.length > 0 && (
-                  <select
-                    className="text-xs border border-gray-300 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-800 focus:ring-indigo-500 text-gray-900 dark:text-gray-100 cursor-pointer"
-                    value={selectedCopydeckLanguage}
-                    onChange={(e) => {
-                      const lang = e.target.value;
-                      setSelectedCopydeckLanguage(lang);
-                      if (lang && copydeckData.data[lang]) {
-                        const translations = Object.values(copydeckData.data[lang]) as string[];
-                        setAvailableCopydeckLines(translations);
-                        
-                        if (translations.length > 0) {
-                          setOcrBriefText(translations[0]);
-                        } else {
-                          setOcrBriefText("");
-                        }
-                        
+                  <div className="flex items-center gap-2">
+                    {ocrDetectionConfidence === 'UNCERTAIN' && (
+                      <div className="relative group flex items-center">
+                        <ExclamationTriangleIcon className="w-5 h-5 text-yellow-500 cursor-help" />
+                        <div className="absolute bottom-full right-0 mb-2 hidden group-hover:block w-max max-w-[200px] sm:max-w-max bg-gray-900 text-white text-xs rounded py-1 px-2 z-10 whitespace-normal sm:whitespace-nowrap shadow-lg">
+                          Wykryto automatycznie - sprawdź czy wariant językowy jest poprawny
+                        </div>
+                      </div>
+                    )}
+                    <select
+                      className={`text-xs border rounded px-2 py-1 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 cursor-pointer ${
+                        ocrDetectionConfidence === 'UNCERTAIN' 
+                          ? 'border-yellow-400 ring-1 ring-yellow-400 focus:border-yellow-500 focus:ring-yellow-500' 
+                          : ocrDetectionConfidence === 'NONE'
+                            ? 'border-orange-400 ring-1 ring-orange-400 focus:border-orange-500 focus:ring-orange-500'
+                            : 'border-gray-300 dark:border-gray-600 focus:ring-indigo-500'
+                      }`}
+                      value={selectedCopydeckLanguage}
+                      onChange={(e) => {
+                        const lang = e.target.value;
+                        setSelectedCopydeckLanguage(lang);
                         if (LANGUAGE_TO_TESSERACT[lang]) {
                           setOcrLanguage(LANGUAGE_TO_TESSERACT[lang]);
                         }
-                      } else {
-                        setAvailableCopydeckLines([]);
-                        setOcrBriefText("");
-                      }
-                    }}
-                  >
-                    <option value="" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">-- Copydeck --</option>
-                    {copydeckData.languages.map((l: string) => (
-                      <option key={l} value={l} className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">{l}</option>
-                    ))}
-                  </select>
+                      }}
+                    >
+                      <option value="" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">
+                        {ocrDetectionConfidence === 'NONE' ? "Nie wykryto języka z pliku — wybierz ręcznie" : "-- Copydeck --"}
+                      </option>
+                      {copydeckData.languages.map((l: string) => (
+                        <option key={l} value={l} className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">{l}</option>
+                      ))}
+                    </select>
+                  </div>
                 )}
               </div>
               <textarea 
