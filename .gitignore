@@ -11,3 +11,20 @@ backend/ffmpeg
 *.dmg
 graphify-out/
 test_fixes.sh
+
+# Temporary debug files and logs
+*uvicorn_test*.log
+diagnostic.js
+parse_test.js
+result_*.json
+*_brief.xlsx
+*_copydeck.xlsx
+test_build/
+old_main.py
+test_correction.py
+test_frontend.py
+test_positive_match_old.py
+
+# Local mock asset paths
+CV_Assets/
+backend/CV_Assets/
