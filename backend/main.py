@@ -85,3 +85,25 @@ def analyze_elements(req: AnalyzeFrameRequest):
 @app.post("/api/v1/copydeck/parse", response_model=CopydeckParseResponse)
 async def parse_copydeck(file: UploadFile = File(...)):
     return await process_copydeck_file(file)
+
+frontend_dist = Path(__file__).parent.parent / "frontend_dist"
+if not frontend_dist.exists():
+    # Fallback for dev mode
+    frontend_dist = Path(__file__).parent.parent / "frontend" / "dist"
+
+if frontend_dist.exists() and (frontend_dist / "index.html").exists():
+    assets_dir = frontend_dist / "assets"
+    if assets_dir.exists():
+        app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
+
+    @app.get("/{file_path:path}")
+    async def serve_static(file_path: str):
+        if file_path == "":
+            return HTMLResponse((frontend_dist / "index.html").read_text())
+        
+        target = frontend_dist / file_path
+        if target.exists() and target.is_file():
+            return FileResponse(target)
+        
+        # SPA fallback
+        return HTMLResponse((frontend_dist / "index.html").read_text())
