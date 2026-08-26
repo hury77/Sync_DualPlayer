@@ -43,3 +43,8 @@ Przy każdym rozbiciu pliku (np. `main.py` → serwisy) agent musi:
 - wypisać listę WSZYSTKICH bloków kodu usuniętych z pliku źródłowego,
 - dla każdego bloku wskazać, gdzie trafił (nowy plik) lub potwierdzić, że został intencjonalnie usunięty i dlaczego,
 - na końcu wykonać `git diff --stat` między commitem przed i po zmianie, żeby liczba linii się zgadzała (nic "nie zgubiło się" w przepisywaniu).
+
+## 9. Bezwzględny zakaz nadpisywania historii (Force Push)
+- Nigdy nie używaj `git push -f` / `git push --force` na głównej gałęzi repozytorium (np. `main`), niezależnie od przyczyny (amend, rebase, reset) i niezależnie od tego, jak "bezpieczna" wydaje się sytuacja.
+- Jeśli po wysłaniu commitu wykryjesz błąd (np. zapomniany plik przez `.gitignore`, literówkę, brakującą regułę), ZAWSZE twórz nowy, jawny commit naprawczy (np. `fix: dodanie brakującego pliku X`).
+- Jedynym wyjątkiem jest świeżo utworzony branch feature, który NIGDY nie był jeszcze pushowany, ani nie jest współdzielony z innymi osobami — a nawet wtedy wymaga wcześniejszego pytania użytkownika.
