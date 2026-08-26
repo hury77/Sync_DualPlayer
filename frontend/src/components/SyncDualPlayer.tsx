@@ -17,12 +17,14 @@ import {
   DocumentTextIcon,
   SunIcon,
   MoonIcon,
+  ExclamationTriangleIcon,
 } from "@heroicons/react/24/outline";
 import Tesseract from "tesseract.js";
 import { diffWords, diffChars } from "diff";
 import { jsPDF } from "jspdf";
 import { robotoBase64 } from "../utils/Roboto-Regular";
 import html2canvas from "html2canvas";
+import { detectLanguageFromFilename, LANGUAGE_TO_TESSERACT } from "../utils/languageDetection";
 
 const RulerIcon = ({ className }: { className?: string }) => (
   <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -85,39 +87,7 @@ interface ReportItem {
   ocrBriefText?: string;
 }
 
-const LANGUAGE_TO_TESSERACT: Record<string, string> = {
-  "Arabic": "ara",
-  "Chinese (Simplified)": "chi_sim",
-  "Chinese (Traditional)": "chi_tra",
-  "Croatian": "hrv",
-  "Czech": "ces",
-  "Danish": "dan",
-  "Dutch": "nld",
-  "English": "eng",
-  "English (UK/ANZ/UAE/ASIA)": "eng",
-  "Finnish": "fin",
-  "French": "fra",
-  "French (Canada)": "fra",
-  "French (France)": "fra",
-  "German": "deu",
-  "German (Germany)": "deu",
-  "Greek": "ell",
-  "Hungarian": "hun",
-  "Italian": "ita",
-  "Japanese": "jpn",
-  "Korean": "kor",
-  "Norwegian": "nor",
-  "Polish": "pol",
-  "Portuguese": "por",
-  "Portuguese (Brazil)": "por",
-  "Romanian": "ron",
-  "Russian": "rus",
-  "Spanish": "spa",
-  "Spanish (Latin America)": "spa",
-  "Spanish (Spain)": "spa",
-  "Swedish": "swe",
-  "Turkish": "tur",
-};
+
 
 const normalizeTextForDiff = (text: string) => {
   if (!text) return "";
@@ -298,6 +268,13 @@ export const SyncDualPlayer: React.FC = () => {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      const activeElement = document.activeElement as HTMLElement;
+      if (activeElement) {
+        const tag = activeElement.tagName.toLowerCase();
+        if (tag === 'input' || tag === 'textarea' || activeElement.isContentEditable) {
+          return;
+        }
+      }
       if ((e.key === "Delete" || e.key === "Backspace") && selectedShapeId) {
         setShapeLines(prev => prev.filter(s => s.id !== selectedShapeId));
         setSelectedShapeId(null);
@@ -366,8 +343,8 @@ export const SyncDualPlayer: React.FC = () => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [acceptanceVolume, setAcceptanceVolume] = useState(1);
-  const [emissionVolume, setEmissionVolume] = useState(1);
+  const [acceptanceVolume, setAcceptanceVolume] = useState(0.5);
+  const [emissionVolume, setEmissionVolume] = useState(0.5);
   const [isMuted, setIsMuted] = useState(false);
 
   // Drag-and-drop highlighting states
@@ -422,6 +399,36 @@ export const SyncDualPlayer: React.FC = () => {
   const [selectedCopydeckLanguage, setSelectedCopydeckLanguage] = useState<string>("");
   const [isUploadingCopydeck, setIsUploadingCopydeck] = useState(false);
   const copydeckInputRef = useRef<HTMLInputElement>(null);
+  const [ocrDetectionConfidence, setOcrDetectionConfidence] = useState<'HIGH' | 'UNCERTAIN' | 'NONE'>('NONE');
+
+  // Synchronize rows and OCR when data or language changes programmatically
+  useEffect(() => {
+    if (copydeckData && copydeckData.data) {
+      let langToSelect = selectedCopydeckLanguage;
+      
+      // If the selected language doesn't exactly match a tab, try to find a case-insensitive match
+      if (langToSelect && !copydeckData.data[langToSelect]) {
+        const matchingLang = copydeckData.languages.find((l: string) => l.toLowerCase() === langToSelect.toLowerCase());
+        if (matchingLang) {
+           langToSelect = matchingLang;
+           setSelectedCopydeckLanguage(matchingLang);
+        }
+      }
+
+      if (langToSelect && copydeckData.data[langToSelect]) {
+        const translations = Object.values(copydeckData.data[langToSelect]) as string[];
+        setAvailableCopydeckLines(translations);
+        if (translations.length > 0) {
+          setOcrBriefText(translations[0]);
+        } else {
+          setOcrBriefText("");
+        }
+      } else {
+        setAvailableCopydeckLines([]);
+        setOcrBriefText("");
+      }
+    }
+  }, [copydeckData, selectedCopydeckLanguage]);
 
   // ── LOC Brief State ──────────────────────────────────────────────────
   const [isBriefUploaded, setIsBriefUploaded] = useState(false);
@@ -446,6 +453,12 @@ export const SyncDualPlayer: React.FC = () => {
       if (res.ok && json.success) {
         setIsBriefUploaded(true);
         // Opcjonalnie mały alert lub toast, my polegamy na zmianie tekstu na przycisku
+        
+        // Jeśli Brief zawierał również Copydeck, automatycznie go wczytujemy
+        if (json.copydeck_data) {
+          setCopydeckData(json.copydeck_data);
+          // Można dodać info do użytkownika, jeśli to potrzebne
+        }
       } else {
         alert("Błąd wgrywania Briefu: " + (json.detail || json.error || "Nieznany błąd serwera."));
       }
@@ -495,6 +508,7 @@ export const SyncDualPlayer: React.FC = () => {
     
     if (parts.length > 1) {
       country = parts[1];
+      
       if (country.includes("FR") || country.includes("CA") || country.includes("US")) {
         rating = "ESRB Teen";
       } else {
@@ -721,7 +735,16 @@ export const SyncDualPlayer: React.FC = () => {
       const apiBase = ''; 
       fetch(`${apiBase}/api/v1/files/${file.fileId}`, {
         method: 'DELETE',
-      }).catch(err => console.error("Error deleting file:", err));
+      })
+      .then(res => {
+        if (!res.ok) {
+          alert(`Nie udało się usunąć poprzedniego pliku z serwera (kod: ${res.status}) - może wymagać ręcznego usunięcia.`);
+        }
+      })
+      .catch(err => {
+        console.error("Error deleting file:", err);
+        alert("Nie udało się połączyć z serwerem, aby usunąć poprzedni plik - może wymagać ręcznego usunięcia.");
+      });
     }
   };
 
@@ -823,6 +846,18 @@ export const SyncDualPlayer: React.FC = () => {
               setAcceptanceLoading(false);
               setAcceptanceProgress(null);
               setAcceptanceLoadingMessage("");
+              
+              const availableTabs = copydeckData?.languages || [];
+              const matchResult = detectLanguageFromFilename(newFile.name, availableTabs);
+              
+              setOcrDetectionConfidence(matchResult.confidence);
+              if (matchResult.detectedTab) {
+                if (matchResult.tesseractLang) {
+                  setOcrLanguage(matchResult.tesseractLang);
+                }
+                setSelectedCopydeckLanguage(matchResult.detectedTab);
+              }
+
               if (activePollsRef.current.acceptance) {
                 clearTimeout(activePollsRef.current.acceptance);
                 activePollsRef.current.acceptance = undefined;
@@ -945,6 +980,17 @@ export const SyncDualPlayer: React.FC = () => {
         cleanUpFile(acceptanceFile);
         setAcceptanceFile(newFile);
         setAcceptanceError(null);
+        
+        const availableTabs = copydeckData?.languages || [];
+        const matchResult = detectLanguageFromFilename(newFile.name, availableTabs);
+        
+        setOcrDetectionConfidence(matchResult.confidence);
+        if (matchResult.detectedTab) {
+          if (matchResult.tesseractLang) {
+            setOcrLanguage(matchResult.tesseractLang);
+          }
+          setSelectedCopydeckLanguage(matchResult.detectedTab);
+        }
       } else {
         cleanUpFile(emissionFile);
         setEmissionFile(newFile);
@@ -1062,7 +1108,19 @@ export const SyncDualPlayer: React.FC = () => {
     setCurrentTime(0);
   };
 
-  const handleClear = () => {
+  const handleClear = async () => {
+    try {
+      const res = await fetch("/api/v1/clear-qa-assets", { method: "POST" });
+      if (!res.ok) {
+        alert("Błąd podczas czyszczenia zasobów na serwerze (kod " + res.status + "). Operacja przerwana.");
+        return;
+      }
+    } catch (err) {
+      console.error("Error clearing QA assets:", err);
+      alert("Błąd sieci podczas czyszczenia zasobów na serwerze. Operacja przerwana.");
+      return;
+    }
+
     handleStop();
     
     // Clear any active transcode polling timers to prevent leaks
@@ -1113,10 +1171,6 @@ export const SyncDualPlayer: React.FC = () => {
     setCopydeckData(null);
     if (briefInputRef.current) briefInputRef.current.value = "";
     if (copydeckInputRef.current) copydeckInputRef.current.value = "";
-    
-    fetch("/api/v1/clear-qa-assets", {
-      method: "POST"
-    }).catch(err => console.error("Error clearing QA assets:", err));
   };
 
   const getMouseSourceCoordinates = (clientX: number, clientY: number, videoRef: React.RefObject<HTMLVideoElement | null>) => {
@@ -4990,36 +5044,40 @@ export const SyncDualPlayer: React.FC = () => {
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Brief text</label>
                 {copydeckData && copydeckData.languages && copydeckData.languages.length > 0 && (
-                  <select
-                    className="text-xs border border-gray-300 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-800 focus:ring-indigo-500 text-gray-900 dark:text-gray-100 cursor-pointer"
-                    value={selectedCopydeckLanguage}
-                    onChange={(e) => {
-                      const lang = e.target.value;
-                      setSelectedCopydeckLanguage(lang);
-                      if (lang && copydeckData.data[lang]) {
-                        const translations = Object.values(copydeckData.data[lang]) as string[];
-                        setAvailableCopydeckLines(translations);
-                        
-                        if (translations.length > 0) {
-                          setOcrBriefText(translations[0]);
-                        } else {
-                          setOcrBriefText("");
-                        }
-                        
+                  <div className="flex items-center gap-2">
+                    {ocrDetectionConfidence === 'UNCERTAIN' && (
+                      <div className="relative group flex items-center">
+                        <ExclamationTriangleIcon className="w-5 h-5 text-yellow-500 cursor-help" />
+                        <div className="absolute bottom-full right-0 mb-2 hidden group-hover:block w-max max-w-[200px] sm:max-w-max bg-gray-900 text-white text-xs rounded py-1 px-2 z-10 whitespace-normal sm:whitespace-nowrap shadow-lg">
+                          Wykryto automatycznie - sprawdź czy wariant językowy jest poprawny
+                        </div>
+                      </div>
+                    )}
+                    <select
+                      className={`text-xs border rounded px-2 py-1 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 cursor-pointer ${
+                        ocrDetectionConfidence === 'UNCERTAIN' 
+                          ? 'border-yellow-400 ring-1 ring-yellow-400 focus:border-yellow-500 focus:ring-yellow-500' 
+                          : ocrDetectionConfidence === 'NONE'
+                            ? 'border-orange-400 ring-1 ring-orange-400 focus:border-orange-500 focus:ring-orange-500'
+                            : 'border-gray-300 dark:border-gray-600 focus:ring-indigo-500'
+                      }`}
+                      value={selectedCopydeckLanguage}
+                      onChange={(e) => {
+                        const lang = e.target.value;
+                        setSelectedCopydeckLanguage(lang);
                         if (LANGUAGE_TO_TESSERACT[lang]) {
                           setOcrLanguage(LANGUAGE_TO_TESSERACT[lang]);
                         }
-                      } else {
-                        setAvailableCopydeckLines([]);
-                        setOcrBriefText("");
-                      }
-                    }}
-                  >
-                    <option value="" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">-- Copydeck --</option>
-                    {copydeckData.languages.map((l: string) => (
-                      <option key={l} value={l} className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">{l}</option>
-                    ))}
-                  </select>
+                      }}
+                    >
+                      <option value="" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">
+                        {ocrDetectionConfidence === 'NONE' ? "Nie wykryto języka z pliku — wybierz ręcznie" : "-- Copydeck --"}
+                      </option>
+                      {copydeckData.languages.map((l: string) => (
+                        <option key={l} value={l} className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">{l}</option>
+                      ))}
+                    </select>
+                  </div>
                 )}
               </div>
               <textarea 

@@ -9,3 +9,5 @@ dist/
 *.zip
 backend/ffmpeg
 *.dmg
+graphify-out/
+test_fixes.sh
