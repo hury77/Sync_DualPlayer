@@ -1,0 +1,9 @@
+- [x] Zaktualizować `backend/requirements.txt` o pakiety testowe.
+- [x] Zainstalować pakiety w środowisku lokalnym.
+- [x] Utworzyć strukturę katalogów (`backend/tests/fixtures/...`).
+- [x] Wygenerować minimalne pliki testowe i sprawdzić ich rozmiar (zgodnie z limitem).
+- [x] Utworzyć `backend/tests/conftest.py` z fixture `reset_state`.
+- [x] Utworzyć `backend/tests/test_api.py` z 5+1 testami.
+- [x] Uruchomić testy i pokazać surowy, poprawny wynik.
+- [x] Wprowadzić celowy błąd (popsuć guard `.xlsx` w `backend/brief_service.py`), uruchomić testy i pokazać log błędu.
+- [x] Przywrócić poprawny kod `backend/brief_service.py` i pokazać zielony wynik.

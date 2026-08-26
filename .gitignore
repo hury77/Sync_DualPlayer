@@ -28,3 +28,4 @@ test_positive_match_old.py
 # Local mock asset paths
 CV_Assets/
 backend/CV_Assets/
+!backend/tests/fixtures/*
