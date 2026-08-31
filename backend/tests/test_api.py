@@ -120,8 +120,13 @@ async def test_reject_invalid_brief_extensions():
 @pytest.mark.asyncio
 async def test_upload_brief_with_mocked_cv_assets(monkeypatch):
     import config
+    import brief_service
+    import state
+    from pathlib import Path
+    
     # Mock the CV_Assets path to our fixture directory
-    monkeypatch.setattr(config.settings, "cv_assets_path", str(CV_ASSETS_MOCK))
+    cv_mock_path = Path(CV_ASSETS_MOCK)
+    monkeypatch.setattr(config.settings, "cv_assets_path", str(cv_mock_path))
     
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
         with open(TEST_BRIEF, "rb") as f:
@@ -130,5 +135,15 @@ async def test_upload_brief_with_mocked_cv_assets(monkeypatch):
                 files={"file": ("test_brief.xlsx", f, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
             )
         assert response.status_code == 200
-        data = response.json()
-        assert data["success"] is True
+        
+        # Test get_cached_brief_data logic which runs ORB matching
+        brief_path = str(state.UPLOAD_DIR / "current_brief.xlsx")
+        reqs, icon_bytes, best_db_path = brief_service.get_cached_brief_data(
+            brief_path, "PL-PL", cv_mock_path
+        )
+        
+        assert reqs.get("RATING") == "PEGI"
+        assert reqs.get("AGE") == "18"
+        assert icon_bytes is not None
+        assert best_db_path is not None
+        assert "18_cropped.png" in str(best_db_path)
