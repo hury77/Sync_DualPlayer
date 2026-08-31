@@ -50,7 +50,11 @@ def extract_rating_icon_from_brief(brief_path: str, language_code: str) -> bytes
             drawing_file = None
             for rel in rels_root:
                 if 'drawing' in rel.get('Target', ''):
-                    drawing_file = rel.get('Target').replace('../drawings/', '')
+                    target = rel.get('Target')
+                    if target.startswith('/xl/drawings/'):
+                        drawing_file = target.replace('/xl/drawings/', '')
+                    else:
+                        drawing_file = target.replace('../drawings/', '')
                     break
             if not drawing_file:
                 return None
@@ -65,7 +69,10 @@ def extract_rating_icon_from_brief(brief_path: str, language_code: str) -> bytes
                     rid = rel.get('Id')
                     target = rel.get('Target', '')
                     if 'image' in target:
-                        rid_to_media[rid] = target.replace('../media/', '')
+                        if target.startswith('/xl/media/'):
+                            rid_to_media[rid] = target.replace('/xl/media/', '')
+                        else:
+                            rid_to_media[rid] = target.replace('../media/', '')
             except KeyError:
                 return None
 
