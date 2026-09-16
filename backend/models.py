@@ -48,3 +48,12 @@ class AnalyzeFrameRequest(BaseModel):
     filename: str
     country_code: Optional[str] = None
     timestamp: Optional[float] = None
+
+class AudioMetrics(BaseModel):
+    lufs: Optional[float] = None
+    peak: Optional[float] = None
+    rms: Optional[float] = None
+
+class AudioWaveformData(BaseModel):
+    metrics: AudioMetrics
+    waveform: List[float]

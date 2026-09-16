@@ -3749,8 +3749,18 @@ export const SyncDualPlayer: React.FC = () => {
                 isSinglePlayerMode ? 'text-white bg-[#4960E6]' : 'text-white/70 hover:text-white'
               }`}
             >
-              {t("single")}
+              {t("single") || "Single"}
             </button>
+          </div>
+
+          <div className="flex bg-black/20 rounded-lg p-1 relative border-l border-white/20 ml-2 pl-3">
+             <button
+                onClick={() => console.log('Stage 1E reserve: Deep Audio Analysis')}
+                className="relative z-10 px-4 py-1.5 text-xs font-semibold rounded-md transition-colors text-white/50 bg-black/30 cursor-not-allowed border border-white/5"
+                title="Stage 1E: Zaawansowana analiza audio (Demucs/Whisper)"
+             >
+                Deep Audio Analysis
+             </button>
           </div>
 
           {isSinglePlayerMode && (
