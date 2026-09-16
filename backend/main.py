@@ -44,8 +44,8 @@ app.add_middleware(
 @app.post("/api/v1/files/upload", response_model=FileUploadResponse)
 async def upload_file(background_tasks: BackgroundTasks, file: UploadFile = File(...), file_type: str = Form(...)):
     ext = Path(file.filename).suffix.lower()
-    if ext not in [".mp4", ".mov", ".mxf", ".gif"]:
-        raise HTTPException(status_code=422, detail=f"Niedozwolony format pliku: {ext}. Dozwolone: .mp4, .mov, .mxf, .gif")
+    if ext not in [".mp4", ".mov", ".mxf", ".gif", ".wav"]:
+        raise HTTPException(status_code=422, detail=f"Niedozwolony format pliku: {ext}. Dozwolone: .mp4, .mov, .mxf, .gif, .wav")
         
     return await video_service.process_video_upload(background_tasks, file)
 
