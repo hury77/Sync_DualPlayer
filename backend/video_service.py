@@ -132,7 +132,9 @@ async def process_video_upload(background_tasks: BackgroundTasks, file: UploadFi
     else:
         state.files_db[file_id]["is_processed"] = True
         state.files_db[file_id]["proxy_path"] = str(file_path)
-        
+    import audio_service
+    background_tasks.add_task(audio_service.process_audio_analysis_task, file_id, str(file_path))
+    
     return {"file_id": file_id}
 
 

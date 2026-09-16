@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks, Request
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks, Request, Response
 from config import settings
 from fastapi.responses import JSONResponse, StreamingResponse, FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -52,6 +52,29 @@ async def upload_file(background_tasks: BackgroundTasks, file: UploadFile = File
 @app.get("/api/v1/files/{file_id}", response_model=FileStatusResponse)
 async def get_file_status(file_id: int):
     return video_service.get_status(file_id)
+
+@app.get("/api/v1/files/{file_id}/audio-data")
+async def get_audio_data(file_id: int, response: Response):
+    if file_id not in state.files_db:
+        raise HTTPException(status_code=404, detail="File not found")
+        
+    analysis = state.files_db[file_id].get("audio_analysis")
+    if not analysis:
+        # Prawdopodobnie nie uruchomiono jeszcze taska lub z jakiegoś powodu go nie ma
+        response.status_code = 202
+        return {"status": "processing"}
+        
+    if analysis["status"] == "processing":
+        response.status_code = 202
+        return {"status": "processing"}
+    elif analysis["status"] == "failed":
+        # Ważne: to zwraca 200/202, żeby frontend ładnie sparsował JSON-a z błędem
+        return {"status": "failed", "error": analysis["error"]}
+    elif analysis["status"] == "completed":
+        return {"status": "completed", "data": analysis["data"]}
+    else:
+        response.status_code = 202
+        return {"status": "processing"}
 
 @app.get("/api/v1/files/stream/{file_id}", response_class=FileResponse)
 async def stream_file(request: Request, file_id: int):
