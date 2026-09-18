@@ -29,3 +29,5 @@ test_positive_match_old.py
 CV_Assets/
 backend/CV_Assets/
 !backend/tests/fixtures/*
+
+backend/.cache/
