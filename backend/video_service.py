@@ -125,8 +125,12 @@ async def process_video_upload(background_tasks: BackgroundTasks, file: UploadFi
                 state.files_db[file_id]["is_processed"] = True
     await loop.run_in_executor(None, save_file)
             
+    # If audio only, skip video transcode
+    if ext == ".wav":
+        state.files_db[file_id]["is_processed"] = True
+        state.files_db[file_id]["proxy_path"] = str(file_path)
     # If not mp4/webm, we must transcode
-    if ext not in [".mp4", ".webm"]:
+    elif ext not in [".mp4", ".webm"]:
         proxy_path = state.UPLOAD_DIR / f"{Path(file.filename).stem}_{random_str}_proxy.mp4"
         background_tasks.add_task(transcode_to_mp4, file_path, proxy_path, file_id)
     else:
