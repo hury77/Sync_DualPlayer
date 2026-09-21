@@ -33,6 +33,7 @@ rsync -av --exclude='__pycache__' \
           --exclude='.env*' \
           --exclude='uploads' \
           --exclude='CV_Assets' \
+          --exclude='.cache' \
           --exclude='test_*.py' \
           --exclude='old_*.py' \
           --exclude='generate_*.py' \

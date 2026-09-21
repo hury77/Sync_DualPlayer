@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 interface AudioWaveformVisualizerProps {
   fileId: number;
@@ -12,7 +12,7 @@ export default function AudioWaveformVisualizer({ fileId, variant }: AudioWavefo
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
-    let interval: NodeJS.Timeout;
+    let interval: ReturnType<typeof setTimeout>;
     const startTime = Date.now();
     const TIMEOUT_MS = 60000; // 60 sekund
 
