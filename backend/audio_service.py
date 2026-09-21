@@ -13,7 +13,7 @@ import state
 
 logger = logging.getLogger(__name__)
 
-CACHE_DIR = Path("backend/.cache/audio_analysis")
+CACHE_DIR = Path(__file__).parent / ".cache" / "audio_analysis"
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 # Semafor ograniczający współbieżność do maksymalnie 2 równoległych analiz,
