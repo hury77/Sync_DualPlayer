@@ -23,6 +23,7 @@ import Tesseract from "tesseract.js";
 import { diffWords, diffChars } from "diff";
 import { jsPDF } from "jspdf";
 import { robotoBase64 } from "../utils/Roboto-Regular";
+import AudioWaveformVisualizer from './AudioWaveformVisualizer';
 import html2canvas from "html2canvas";
 import { detectLanguageFromFilename, LANGUAGE_TO_TESSERACT } from "../utils/languageDetection";
 
@@ -710,6 +711,11 @@ export const SyncDualPlayer: React.FC = () => {
   const isBrowserPlayable = (filename: string) => {
     const ext = filename.split(".").pop()?.toLowerCase();
     return ext === "mp4" || ext === "webm";
+  };
+
+  const isAudioFile = (filename: string) => {
+    const ext = filename.split(".").pop()?.toLowerCase();
+    return ext === "wav";
   };
 
   // Helper to format file size
@@ -4442,26 +4448,30 @@ export const SyncDualPlayer: React.FC = () => {
             )}
 
             {acceptanceFile ? (
-              <video
-                ref={acceptanceVideoRef}
-                className={`max-w-full h-auto max-h-[70vh] object-contain ${(isEyedropperActive || isRulerActive || isOcrActive || isShapeToolActive) && !isPlaying ? "cursor-crosshair" : ""}`}
-                src={acceptanceFile.url}
-                crossOrigin="anonymous"
-                preload="auto"
-                onLoadedMetadata={(e) => {
-                  setAccDimensions({ width: e.currentTarget.videoWidth, height: e.currentTarget.videoHeight });
-                }}
-                onSeeked={() => { if (diffMode && !isPlaying) analyzeCurrentFrame(); }}
-                onMouseDown={(e) => handleVideoMouseDown(e, acceptanceVideoRef)}
-                onMouseMove={(e) => handleVideoMouseMove(e, acceptanceVideoRef)}
-                onMouseUp={handleVideoMouseUp}
-                onMouseLeave={handleVideoMouseUp}
-                draggable={false}
-                onDragStart={(e) => e.preventDefault()}
-                onError={() => {
-                  setAcceptanceError("Failed to load video stream from server (np. file expired in DEV mode or connection lost).");
-                }}
-              />
+              isAudioFile(acceptanceFile.name) ? (
+                <AudioWaveformVisualizer fileId={acceptanceFile.fileId!} variant="acceptance" />
+              ) : (
+                <video
+                  ref={acceptanceVideoRef}
+                  className={`max-w-full h-auto max-h-[70vh] object-contain ${(isEyedropperActive || isRulerActive || isOcrActive || isShapeToolActive) && !isPlaying ? "cursor-crosshair" : ""}`}
+                  src={acceptanceFile.url}
+                  crossOrigin="anonymous"
+                  preload="auto"
+                  onLoadedMetadata={(e) => {
+                    setAccDimensions({ width: e.currentTarget.videoWidth, height: e.currentTarget.videoHeight });
+                  }}
+                  onSeeked={() => { if (diffMode && !isPlaying) analyzeCurrentFrame(); }}
+                  onMouseDown={(e) => handleVideoMouseDown(e, acceptanceVideoRef)}
+                  onMouseMove={(e) => handleVideoMouseMove(e, acceptanceVideoRef)}
+                  onMouseUp={handleVideoMouseUp}
+                  onMouseLeave={handleVideoMouseUp}
+                  draggable={false}
+                  onDragStart={(e) => e.preventDefault()}
+                  onError={() => {
+                    setAcceptanceError("Failed to load video stream from server (np. file expired in DEV mode or connection lost).");
+                  }}
+                />
+              )
             ) : (
               <div className="w-full min-h-[300px] border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-xl flex flex-col items-center justify-center p-6 text-center text-gray-400 bg-white dark:bg-[#121212]">
                 <ArrowUpTrayIcon className="w-12 h-12 text-gray-300 mb-3" />
@@ -4615,26 +4625,30 @@ export const SyncDualPlayer: React.FC = () => {
             )}
 
             {emissionFile ? (
-              <video
-                ref={emissionVideoRef}
-                className={`max-w-full h-auto max-h-[70vh] object-contain ${(isEyedropperActive || isRulerActive || isOcrActive || isShapeToolActive) && !isPlaying ? "cursor-crosshair" : ""}`}
-                src={emissionFile.url}
-                crossOrigin="anonymous"
-                preload="auto"
-                onLoadedMetadata={(e) => {
-                  setEmDimensions({ width: e.currentTarget.videoWidth, height: e.currentTarget.videoHeight });
-                }}
-                onSeeked={() => { if (diffMode && !isPlaying) analyzeCurrentFrame(); }}
-                onMouseDown={(e) => handleVideoMouseDown(e, emissionVideoRef)}
-                onMouseMove={(e) => handleVideoMouseMove(e, emissionVideoRef)}
-                onMouseUp={handleVideoMouseUp}
-                onMouseLeave={handleVideoMouseUp}
-                draggable={false}
-                onDragStart={(e) => e.preventDefault()}
-                onError={() => {
-                  setEmissionError("Failed to load video stream from server (np. file expired in DEV mode or connection lost).");
-                }}
-              />
+              isAudioFile(emissionFile.name) ? (
+                <AudioWaveformVisualizer fileId={emissionFile.fileId!} variant="emission" />
+              ) : (
+                <video
+                  ref={emissionVideoRef}
+                  className={`max-w-full h-auto max-h-[70vh] object-contain ${(isEyedropperActive || isRulerActive || isOcrActive || isShapeToolActive) && !isPlaying ? "cursor-crosshair" : ""}`}
+                  src={emissionFile.url}
+                  crossOrigin="anonymous"
+                  preload="auto"
+                  onLoadedMetadata={(e) => {
+                    setEmDimensions({ width: e.currentTarget.videoWidth, height: e.currentTarget.videoHeight });
+                  }}
+                  onSeeked={() => { if (diffMode && !isPlaying) analyzeCurrentFrame(); }}
+                  onMouseDown={(e) => handleVideoMouseDown(e, emissionVideoRef)}
+                  onMouseMove={(e) => handleVideoMouseMove(e, emissionVideoRef)}
+                  onMouseUp={handleVideoMouseUp}
+                  onMouseLeave={handleVideoMouseUp}
+                  draggable={false}
+                  onDragStart={(e) => e.preventDefault()}
+                  onError={() => {
+                    setEmissionError("Failed to load video stream from server (np. file expired in DEV mode or connection lost).");
+                  }}
+                />
+              )
             ) : (
               <div className="w-full min-h-[300px] border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-xl flex flex-col items-center justify-center p-6 text-center text-gray-400 bg-white dark:bg-[#121212]">
                 <ArrowUpTrayIcon className="w-12 h-12 text-gray-300 mb-3" />
