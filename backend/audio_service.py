@@ -53,6 +53,12 @@ def extract_ebur128(file_path: str):
     if lufs is None or peak is None:
         raise RuntimeError("Could not parse LUFS or Peak from FFmpeg output")
         
+    import math
+    if math.isinf(peak) and peak < 0:
+        peak = -99.0
+    if math.isinf(lufs) and lufs < 0:
+        lufs = -70.0
+        
     return lufs, peak
 
 def extract_waveform(file_path: str) -> List[float]:
