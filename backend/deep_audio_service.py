@@ -132,6 +132,11 @@ def run_deep_audio_analysis_sync(file_path: str) -> Dict[str, Any]:
             "text": segment.text
         })
         
+    # Zwolnij pamiec po Whisper (okolo 750MB) przed ladowaniem Demucs (1.2GB)
+    del model
+    import gc
+    gc.collect()
+        
     # 2. Separacja Demucs using API
     import torch
     from demucs.pretrained import get_model

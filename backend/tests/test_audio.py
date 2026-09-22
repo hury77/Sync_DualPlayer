@@ -166,3 +166,37 @@ async def test_audio_cache_hit():
         
         # Data should match exactly
         assert r.json()["data"] == r2.json()["data"]
+
+@pytest.mark.asyncio
+async def test_silent_audio_inf_handling():
+    # Testuje czy calkowicie cichy plik (-inf lufs) nie wywala endpointu
+    TEST_SILENT = FIXTURES_DIR / "silent.wav"
+    # Ensure the fixture exists
+    if not TEST_SILENT.exists():
+        pytest.skip("silent.wav fixture missing")
+        
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        with open(TEST_SILENT, "rb") as f:
+            resp = await client.post(
+                "/api/v1/files/upload",
+                data={"file_type": "Acceptance"},
+                files={"file": ("silent.wav", f, "audio/wav")}
+            )
+        assert resp.status_code == 200
+        file_id = resp.json()["file_id"]
+        
+        max_retries = 20
+        status_data = None
+        for _ in range(max_retries):
+            audio_resp = await client.get(f"/api/v1/files/{file_id}/audio-data")
+            status_data = audio_resp.json()
+            if status_data["status"] in ["completed", "failed"]:
+                break
+            await asyncio.sleep(0.5)
+            
+        assert status_data["status"] == "completed"
+        
+        data = status_data["data"]
+        # Sprawdz czy -inf zostalo prawidlowo odciete do -70.0/-99.0
+        assert data["metrics"]["lufs"] == -70.0
+        assert data["metrics"]["peak"] == -99.0
