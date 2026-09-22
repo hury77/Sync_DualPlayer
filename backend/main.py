@@ -76,6 +76,67 @@ async def get_audio_data(file_id: int, response: Response):
         response.status_code = 202
         return {"status": "processing"}
 
+import deep_audio_service
+from models import DeepAudioInstallStatus, DeepAudioStatusResponse
+
+@app.post("/api/v1/deep-audio/install", response_model=DeepAudioInstallStatus)
+async def install_deep_audio(background_tasks: BackgroundTasks):
+    status = deep_audio_service.get_install_status()
+    if status["status"] == "installing":
+        raise HTTPException(status_code=409, detail="Installation already in progress")
+    if status["status"] == "completed":
+        return status
+        
+    # Check disk space (min 2.5 GB)
+    import shutil
+    total, used, free = shutil.disk_usage(str(deep_audio_service.CACHE_DIR.parent))
+    if free < 2.5 * 1024**3:
+        raise HTTPException(status_code=400, detail=f"Brak wymaganego miejsca na dysku. Wymagane 2.5 GB, dostępne {free / 1024**3:.2f} GB.")
+        
+    background_tasks.add_task(deep_audio_service.install_deep_audio_background)
+    return {"status": "installing", "message": "Pobieranie i instalowanie modeli...", "error": None}
+
+@app.get("/api/v1/deep-audio/install", response_model=DeepAudioInstallStatus)
+async def get_install_deep_audio():
+    return deep_audio_service.get_install_status()
+
+@app.post("/api/v1/files/{file_id}/deep-audio")
+async def trigger_deep_audio(file_id: int, background_tasks: BackgroundTasks):
+    if file_id not in state.files_db:
+        raise HTTPException(status_code=404, detail="File not found")
+        
+    status = deep_audio_service.get_install_status()
+    if status["status"] != "completed":
+        raise HTTPException(status_code=400, detail="Deep Audio Analysis module is not installed yet.")
+        
+    file_path = state.files_db[file_id].get("path")
+    if not file_path:
+        raise HTTPException(status_code=404, detail="Original file path missing")
+        
+    background_tasks.add_task(deep_audio_service.process_deep_audio_task, file_id, file_path)
+    return {"success": True}
+
+@app.get("/api/v1/files/{file_id}/deep-audio-data", response_model=DeepAudioStatusResponse)
+async def get_deep_audio_data(file_id: int, response: Response):
+    if file_id not in state.files_db:
+        raise HTTPException(status_code=404, detail="File not found")
+        
+    analysis = state.files_db[file_id].get("deep_audio")
+    if not analysis:
+        response.status_code = 202
+        return {"status": "processing"}
+        
+    if analysis["status"] == "processing":
+        response.status_code = 202
+        return {"status": "processing"}
+    elif analysis["status"] == "failed":
+        return {"status": "failed", "error": analysis["error"]}
+    elif analysis["status"] == "completed":
+        return {"status": "completed", "data": analysis["data"]}
+    else:
+        response.status_code = 202
+        return {"status": "processing"}
+
 @app.get("/api/v1/files/stream/{file_id}", response_class=FileResponse)
 async def stream_file(request: Request, file_id: int):
     return video_service.get_file_stream(file_id)

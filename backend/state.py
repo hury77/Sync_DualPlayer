@@ -13,3 +13,10 @@ _image_cache_lock = threading.Lock()
 
 _brief_cache = {}
 _brief_cache_lock = threading.Lock()
+
+deep_audio_install_status = {
+    "status": "not_installed",
+    "message": None,
+    "error": None
+}
+deep_audio_install_lock = threading.Lock()

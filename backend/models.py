@@ -57,3 +57,18 @@ class AudioMetrics(BaseModel):
 class AudioWaveformData(BaseModel):
     metrics: AudioMetrics
     waveform: List[float]
+
+class DeepAudioInstallStatus(BaseModel):
+    status: str
+    message: Optional[str] = None
+    error: Optional[str] = None
+
+class DeepAudioData(BaseModel):
+    stems: Dict[str, str]
+    transcription: List[Dict]
+    processing_time_seconds: Optional[float] = None
+
+class DeepAudioStatusResponse(BaseModel):
+    status: str
+    data: Optional[DeepAudioData] = None
+    error: Optional[str] = None
