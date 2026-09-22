@@ -3702,7 +3702,7 @@ export const SyncDualPlayer: React.FC = () => {
                 Video Inspector Tool Observer
               </span>
               <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-widest px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-800/50 shadow-sm ml-3">
-                v2.3
+                v2.4
               </span>
             </div>
           </div>
