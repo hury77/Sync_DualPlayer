@@ -26,6 +26,9 @@ import { robotoBase64 } from "../utils/Roboto-Regular";
 import AudioWaveformVisualizer from './AudioWaveformVisualizer';
 import html2canvas from "html2canvas";
 import { detectLanguageFromFilename, LANGUAGE_TO_TESSERACT } from "../utils/languageDetection";
+import { useDeepAudio } from '../hooks/useDeepAudio';
+import DeepAudioModal from './DeepAudioModal';
+import DeepAudioResults from './DeepAudioResults';
 
 const RulerIcon = ({ className }: { className?: string }) => (
   <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -239,6 +242,48 @@ export const SyncDualPlayer: React.FC = () => {
   const [acceptanceFile, setAcceptanceFile] = useState<VideoFile | null>(null);
   const [emissionFile, setEmissionFile] = useState<VideoFile | null>(null);
 
+  // Deep Audio Analysis Integration
+  const {
+    installStatus,
+    installProgressMessage,
+    installError,
+    checkInstallStatus,
+    startInstall,
+    analysisStatus,
+    analysisError,
+    results: deepAudioResults,
+    startAnalysis,
+    setAnalysisStatus,
+    clearAnalysisPolling
+  } = useDeepAudio();
+
+  const [isDeepAudioModalOpen, setIsDeepAudioModalOpen] = useState(false);
+  const [isDeepAudioResultsOpen, setIsDeepAudioResultsOpen] = useState(false);
+  const [currentDeepAudioFileId, setCurrentDeepAudioFileId] = useState<number | null>(null);
+
+  const handleDeepAudioClick = async () => {
+    // 1. Identify context file (Acceptance fallback to Emission)
+    const fileId = acceptanceFile?.fileId ?? emissionFile?.fileId;
+    if (!fileId) {
+      alert("Proszę wgrać przynajmniej jeden plik.");
+      return;
+    }
+    
+    setCurrentDeepAudioFileId(fileId);
+    
+    // 2. Check install status and open Modal
+    await checkInstallStatus();
+    setIsDeepAudioModalOpen(true);
+  };
+
+  // Auto-start analysis when install completes or is already installed
+  useEffect(() => {
+    if (installStatus === 'installed' && currentDeepAudioFileId !== null && isDeepAudioModalOpen) {
+      setIsDeepAudioModalOpen(false);
+      setIsDeepAudioResultsOpen(true);
+      startAnalysis(currentDeepAudioFileId);
+    }
+  }, [installStatus, currentDeepAudioFileId, isDeepAudioModalOpen]);
   // Resolution States
   const [accDimensions, setAccDimensions] = useState<{width: number, height: number} | null>(null);
   const [emDimensions, setEmDimensions] = useState<{width: number, height: number} | null>(null);
@@ -3761,8 +3806,8 @@ export const SyncDualPlayer: React.FC = () => {
 
           <div className="flex bg-black/20 rounded-lg p-1 relative border-l border-white/20 ml-2 pl-3">
              <button
-                onClick={() => console.log('Stage 1E reserve: Deep Audio Analysis')}
-                className="relative z-10 px-4 py-1.5 text-xs font-semibold rounded-md transition-colors text-white/50 bg-black/30 cursor-not-allowed border border-white/5"
+                onClick={handleDeepAudioClick}
+                className="relative z-10 px-4 py-1.5 text-xs font-semibold rounded-md transition-colors text-white bg-blue-600 hover:bg-blue-500 shadow-sm border border-blue-400/50"
                 title="Stage 1E: Zaawansowana analiza audio (Demucs/Whisper)"
              >
                 Deep Audio Analysis
@@ -5387,6 +5432,30 @@ export const SyncDualPlayer: React.FC = () => {
           </div>
         </div>
       )}
+
+      <DeepAudioModal 
+        isOpen={isDeepAudioModalOpen}
+        // Zamknięcie modala celowo NIE przerywa pollingu instalacji w tle (clearInstallPolling nie jest wołane),
+        // aby raz rozpoczęta (i kosztowna) instalacja mogła dokończyć się w tle,
+        // a jej powrót do statusu 'completed' samoczynnie odblokował analizę.
+        onClose={() => setIsDeepAudioModalOpen(false)}
+        onContinue={() => startInstall()}
+        status={installStatus}
+        progressMessage={installProgressMessage}
+        errorMessage={installError}
+      />
+
+      <DeepAudioResults 
+        isOpen={isDeepAudioResultsOpen}
+        onClose={() => {
+          setIsDeepAudioResultsOpen(false);
+          setAnalysisStatus('idle');
+          clearAnalysisPolling(); // Zatrzymuje timer 180s i polling w tle, gdy user ręcznie zamknie panel
+        }}
+        status={analysisStatus}
+        results={deepAudioResults}
+        errorMessage={analysisError}
+      />
 
     </div>
   );
