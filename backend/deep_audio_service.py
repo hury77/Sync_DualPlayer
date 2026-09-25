@@ -121,9 +121,14 @@ def run_deep_audio_analysis_sync(file_path: str) -> Dict[str, Any]:
     import certifi
     os.environ["SSL_CERT_FILE"] = certifi.where()
     
-    # 1. Transkrypcja Whisper base
+    # 1. Transkrypcja Whisper base z Silero VAD jako pre-processing
     model = WhisperModel("base", device="cpu", compute_type="int8")
-    segments, info = model.transcribe(file_path, beam_size=5)
+    segments, info = model.transcribe(
+        file_path, 
+        beam_size=5,
+        vad_filter=True,
+        vad_parameters=dict(min_silence_duration_ms=1000)
+    )
     transcription = []
     for segment in segments:
         transcription.append({

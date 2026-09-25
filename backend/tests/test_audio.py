@@ -200,3 +200,24 @@ async def test_silent_audio_inf_handling():
         # Sprawdz czy -inf zostalo prawidlowo odciete do -70.0/-99.0
         assert data["metrics"]["lufs"] == -70.0
         assert data["metrics"]["peak"] == -99.0
+
+@pytest.mark.asyncio
+async def test_vad_filters_silence_and_keeps_speech():
+    from faster_whisper import WhisperModel
+    audio_file = FIXTURES_DIR / "mixed_audio.wav"
+    if not audio_file.exists():
+        pytest.skip("mixed_audio.wav fixture missing")
+        
+    model = WhisperModel("tiny", compute_type="int8")
+    
+    # Bez VAD (powinno zacząć łapać halucynacje od 0.0s)
+    segs_no_vad, _ = model.transcribe(str(audio_file), vad_filter=False)
+    no_vad_list = list(segs_no_vad)
+    
+    # Z VAD (powinno zacząć się tam gdzie faktyczna mowa, np. ~2.6s)
+    segs_vad, _ = model.transcribe(str(audio_file), vad_filter=True, vad_parameters=dict(min_silence_duration_ms=500))
+    vad_list = list(segs_vad)
+    
+    assert len(no_vad_list) > 0, "No VAD should find some text"
+    assert len(vad_list) > 0, "VAD should keep actual speech"
+    assert vad_list[0].start > no_vad_list[0].start, "VAD should shift the start time after trimming silence"
