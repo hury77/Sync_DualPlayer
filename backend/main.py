@@ -12,6 +12,7 @@ import time
 import shutil
 import asyncio
 from pathlib import Path
+import copy
 import imageio_ffmpeg
 import cv2
 import numpy as np
@@ -46,7 +47,7 @@ async def upload_file(background_tasks: BackgroundTasks, file: UploadFile = File
     ext = Path(file.filename).suffix.lower()
     if ext not in [".mp4", ".mov", ".mxf", ".gif", ".wav"]:
         raise HTTPException(status_code=422, detail=f"Niedozwolony format pliku: {ext}. Dozwolone: .mp4, .mov, .mxf, .gif, .wav")
-        
+
     return await video_service.process_video_upload(background_tasks, file)
 
 @app.get("/api/v1/files/{file_id}", response_model=FileStatusResponse)
@@ -57,13 +58,13 @@ async def get_file_status(file_id: int):
 async def get_audio_data(file_id: int, response: Response):
     if file_id not in state.files_db:
         raise HTTPException(status_code=404, detail="File not found")
-        
+
     analysis = state.files_db[file_id].get("audio_analysis")
     if not analysis:
         # Prawdopodobnie nie uruchomiono jeszcze taska lub z jakiegoś powodu go nie ma
         response.status_code = 202
         return {"status": "processing"}
-        
+
     if analysis["status"] == "processing":
         response.status_code = 202
         return {"status": "processing"}
@@ -86,13 +87,71 @@ async def install_deep_audio(background_tasks: BackgroundTasks):
         raise HTTPException(status_code=409, detail="Installation already in progress")
     if status["status"] == "completed":
         return status
-        
+
+import openpyxl
+from openpyxl.styles import PatternFill, Font
+from io import BytesIO
+from fastapi.responses import StreamingResponse
+from typing import List
+from models import TranscriptComparisonRow
+
+@app.post("/api/v1/files/export-vo")
+async def export_vo_comparison(rows: List[TranscriptComparisonRow]):
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "VO Comparison"
+
+    headers = ["Time", "Acceptance VO", "Emission VO", "Difference"]
+    ws.append(headers)
+
+    # Styl nagłówków
+    header_font = Font(bold=True)
+    for col in range(1, 5):
+        ws.cell(row=1, column=col).font = header_font
+
+    red_fill = PatternFill(start_color="FFCCCC", end_color="FFCCCC", fill_type="solid")
+    red_font = Font(color="FF0000")
+
+    for idx, r in enumerate(rows, start=2):
+        time_str = f"{r.start:.1f}s - {r.end:.1f}s"
+        acc_text = r.acceptanceText if r.acceptanceText else ""
+        emi_text = r.emissionText if r.emissionText else ""
+        diff_str = r.differenceType
+
+        ws.append([time_str, acc_text, emi_text, diff_str])
+
+        # Jeśli jest różnica/brak, podświetlamy komórki na czerwono
+        if r.differenceType != 'same':
+            ws.cell(row=idx, column=4).font = red_font
+            if r.differenceType == 'missing_acceptance':
+                ws.cell(row=idx, column=2).fill = red_fill
+            elif r.differenceType == 'missing_emission':
+                ws.cell(row=idx, column=3).fill = red_fill
+            elif r.differenceType == 'changed':
+                ws.cell(row=idx, column=2).fill = red_fill
+                ws.cell(row=idx, column=3).fill = red_fill
+
+    # Dopasowanie szerokości
+    ws.column_dimensions['A'].width = 15
+    ws.column_dimensions['B'].width = 40
+    ws.column_dimensions['C'].width = 40
+    ws.column_dimensions['D'].width = 20
+
+    stream = BytesIO()
+    wb.save(stream)
+    stream.seek(0)
+
+    return StreamingResponse(
+        stream,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=vo_comparison.xlsx"}
+    )
     # Check disk space (min 2.5 GB)
     import shutil
     total, used, free = shutil.disk_usage(str(deep_audio_service.CACHE_DIR.parent))
     if free < 2.5 * 1024**3:
         raise HTTPException(status_code=400, detail=f"Brak wymaganego miejsca na dysku. Wymagane 2.5 GB, dostępne {free / 1024**3:.2f} GB.")
-        
+
     background_tasks.add_task(deep_audio_service.install_deep_audio_background)
     return {"status": "installing", "message": "Pobieranie i instalowanie modeli...", "error": None}
 
@@ -104,15 +163,15 @@ async def get_install_deep_audio():
 async def trigger_deep_audio(file_id: int, background_tasks: BackgroundTasks):
     if file_id not in state.files_db:
         raise HTTPException(status_code=404, detail="File not found")
-        
+
     status = deep_audio_service.get_install_status()
     if status["status"] != "completed":
         raise HTTPException(status_code=400, detail="Deep Audio Analysis module is not installed yet.")
-        
+
     file_path = state.files_db[file_id].get("path")
     if not file_path:
         raise HTTPException(status_code=404, detail="Original file path missing")
-        
+
     background_tasks.add_task(deep_audio_service.process_deep_audio_task, file_id, file_path)
     return {"success": True}
 
@@ -120,22 +179,28 @@ async def trigger_deep_audio(file_id: int, background_tasks: BackgroundTasks):
 async def get_deep_audio_data(file_id: int, response: Response):
     if file_id not in state.files_db:
         raise HTTPException(status_code=404, detail="File not found")
-        
-    analysis = state.files_db[file_id].get("deep_audio")
+
+    with state.deep_audio_state_lock:
+        analysis_ref = state.files_db[file_id].get("deep_audio")
+        if analysis_ref:
+            analysis = copy.deepcopy(analysis_ref)
+        else:
+            analysis = None
+
     if not analysis:
         response.status_code = 202
         return {"status": "processing"}
-        
+
     if analysis["status"] == "processing":
         response.status_code = 202
-        return {"status": "processing"}
+        return {"status": "processing", "phase": analysis.get("phase"), "message": analysis.get("message", "Przetwarzanie...")}
     elif analysis["status"] == "failed":
         return {"status": "failed", "error": analysis["error"]}
     elif analysis["status"] == "completed":
         return {"status": "completed", "data": analysis["data"]}
     else:
         response.status_code = 202
-        return {"status": "processing"}
+        return {"status": "processing", "phase": analysis.get("phase"), "message": analysis.get("message", "Przetwarzanie...")}
 
 @app.get("/api/v1/files/stream/{file_id}", response_class=FileResponse)
 async def stream_file(request: Request, file_id: int):
@@ -184,10 +249,10 @@ if frontend_dist.exists() and (frontend_dist / "index.html").exists():
     async def serve_static(file_path: str):
         if file_path == "":
             return HTMLResponse((frontend_dist / "index.html").read_text())
-        
+
         target = frontend_dist / file_path
         if target.exists() and target.is_file():
             return FileResponse(target)
-        
+
         # SPA fallback
         return HTMLResponse((frontend_dist / "index.html").read_text())

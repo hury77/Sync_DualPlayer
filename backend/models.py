@@ -61,6 +61,14 @@ class AudioWaveformData(BaseModel):
 class DeepAudioInstallStatus(BaseModel):
     status: str
     message: Optional[str] = None
+class TranscriptComparisonRow(BaseModel):
+    start: float
+    end: float
+    acceptanceText: Optional[str] = None
+    emissionText: Optional[str] = None
+    isDifferent: bool
+    differenceType: str
+
     error: Optional[str] = None
 
 class DeepAudioData(BaseModel):

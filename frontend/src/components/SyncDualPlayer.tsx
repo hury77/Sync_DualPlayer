@@ -30,6 +30,7 @@ import { useDeepAudio } from '../hooks/useDeepAudio';
 import DeepAudioModal from './DeepAudioModal';
 import DeepAudioResults from './DeepAudioResults';
 
+import TranscriptComparisonTable from './TranscriptComparisonTable';
 const RulerIcon = ({ className }: { className?: string }) => (
   <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 4.5l-15 15m0 0l-3-3 15-15 3 3-15 15z" />
@@ -5460,3 +5461,4 @@ export const SyncDualPlayer: React.FC = () => {
     </div>
   );
 };
+      <TranscriptComparisonTable state={deepAudioState} />
