@@ -28,9 +28,10 @@ import html2canvas from "html2canvas";
 import { detectLanguageFromFilename, LANGUAGE_TO_TESSERACT } from "../utils/languageDetection";
 import { useDeepAudio } from '../hooks/useDeepAudio';
 import DeepAudioModal from './DeepAudioModal';
-import DeepAudioResults from './DeepAudioResults';
-
+import DeepAudioPanel from './DeepAudioPanel';
+import AudioWaveformComparison from './AudioWaveformComparison';
 import TranscriptComparisonTable from './TranscriptComparisonTable';
+
 const RulerIcon = ({ className }: { className?: string }) => (
   <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 4.5l-15 15m0 0l-3-3 15-15 3 3-15 15z" />
@@ -77,6 +78,13 @@ interface VideoFile {
   conversionTime?: number; // Optional, time took to transcode
 }
 
+export type SyncStatus = 'local' | 'syncing' | 'server' | 'error';
+
+export interface FileSyncState {
+  status: SyncStatus;
+  fileId: number | null;
+  error: string | null;
+}
 
 interface ReportItem {
   id: string;
@@ -240,8 +248,12 @@ export const SyncDualPlayer: React.FC = () => {
   }, [theme]);
 
   const t = (key: keyof typeof uiTranslations.pl) => uiTranslations[language][key];
+
   const [acceptanceFile, setAcceptanceFile] = useState<VideoFile | null>(null);
   const [emissionFile, setEmissionFile] = useState<VideoFile | null>(null);
+
+  const [acceptanceRawFile, setAcceptanceRawFile] = useState<File | null>(null);
+  const [emissionRawFile, setEmissionRawFile] = useState<File | null>(null);
 
   // Deep Audio Analysis Integration
   const {
@@ -250,41 +262,49 @@ export const SyncDualPlayer: React.FC = () => {
     installError,
     checkInstallStatus,
     startInstall,
-    analysisStatus,
-    analysisError,
-    results: deepAudioResults,
-    startAnalysis,
-    setAnalysisStatus,
-    clearAnalysisPolling
+    deepAudioState,
+    startAnalysis
   } = useDeepAudio();
 
   const [isDeepAudioModalOpen, setIsDeepAudioModalOpen] = useState(false);
-  const [isDeepAudioResultsOpen, setIsDeepAudioResultsOpen] = useState(false);
-  const [currentDeepAudioFileId, setCurrentDeepAudioFileId] = useState<number | null>(null);
+
+  const [acceptanceSync, setAcceptanceSync] = useState<FileSyncState>({ status: 'local', fileId: null, error: null });
+  const [emissionSync, setEmissionSync] = useState<FileSyncState>({ status: 'local', fileId: null, error: null });
+  const [deepAudioInlineError, setDeepAudioInlineError] = useState<string | null>(null);
 
   const handleDeepAudioClick = async () => {
-    // 1. Identify context file (Acceptance fallback to Emission)
-    const fileId = acceptanceFile?.fileId ?? emissionFile?.fileId;
-    if (!fileId) {
-      alert("Proszę wgrać przynajmniej jeden plik.");
+    if (!acceptanceFile && !emissionFile) {
+      setDeepAudioInlineError("Wgraj przynajmniej jeden plik.");
       return;
     }
     
-    setCurrentDeepAudioFileId(fileId);
-    
-    // 2. Check install status and open Modal
+    const isAccSyncing = acceptanceFile && acceptanceSync.status === 'syncing';
+    const isEmSyncing = emissionFile && emissionSync.status === 'syncing';
+
+    if (isAccSyncing || isEmSyncing) {
+      return;
+    }
+
+    const isAccValid = acceptanceFile && acceptanceSync.fileId;
+    const isEmValid = emissionFile && emissionSync.fileId;
+
+    if (!isAccValid && !isEmValid) {
+      // Żaden plik nie nadaje się do analizy
+      setDeepAudioInlineError("Brak poprawnie zsynchronizowanych plików (błąd lub brak fileId).");
+      return;
+    }
+
+    setDeepAudioInlineError(null);
     await checkInstallStatus();
     setIsDeepAudioModalOpen(true);
   };
 
-  // Auto-start analysis when install completes or is already installed
   useEffect(() => {
-    if (installStatus === 'installed' && currentDeepAudioFileId !== null && isDeepAudioModalOpen) {
+    if (installStatus === 'installed' && isDeepAudioModalOpen) {
       setIsDeepAudioModalOpen(false);
-      setIsDeepAudioResultsOpen(true);
-      startAnalysis(currentDeepAudioFileId);
+      startAnalysis(acceptanceSync.fileId, emissionSync.fileId);
     }
-  }, [installStatus, currentDeepAudioFileId, isDeepAudioModalOpen]);
+  }, [installStatus, isDeepAudioModalOpen, acceptanceSync.fileId, emissionSync.fileId]);
   // Resolution States
   const [accDimensions, setAccDimensions] = useState<{width: number, height: number} | null>(null);
   const [emDimensions, setEmDimensions] = useState<{width: number, height: number} | null>(null);
@@ -385,6 +405,7 @@ export const SyncDualPlayer: React.FC = () => {
 
   // Active polling refs to manage async timeouts and prevent memory leaks
   const activePollsRef = useRef<{ acceptance?: ReturnType<typeof setTimeout>; emission?: ReturnType<typeof setTimeout> }>({});
+  const generationRef = useRef<{ acceptance: number; emission: number }>({ acceptance: 0, emission: 0 });
 
   // Playback States
   const [isPlaying, setIsPlaying] = useState(false);
@@ -777,13 +798,11 @@ export const SyncDualPlayer: React.FC = () => {
   const cleanUpFile = (file: VideoFile | null) => {
     if (!file) return;
     
-    if (file.isLocal && file.url.startsWith("blob:")) {
+    if (file.url && file.url.startsWith("blob:")) {
       URL.revokeObjectURL(file.url);
     }
     
-    // If the file was uploaded to the server (niezależnie czy wygenerowano mp4 czy nie), usuń go trwale
-    if (file.fileId !== undefined) {
-      // DEV i LIVE różnice w URL, używamy względnego dla proxy w vite
+    if (file.fileId !== undefined && file.fileId !== null) {
       const apiBase = ''; 
       fetch(`${apiBase}/api/v1/files/${file.fileId}`, {
         method: 'DELETE',
@@ -821,30 +840,43 @@ export const SyncDualPlayer: React.FC = () => {
   };
 
   // Upload/Process non-native video file (like MXF)
-  const uploadAndProcess = async (file: File, type: "acceptance" | "emission") => {
+  const uploadAndProcess = async (file: File, type: "acceptance" | "emission", isSilentBackground: boolean = false, silentUrl?: string) => {
     const isAcc = type === "acceptance";
     let startedPolling = false;
 
     if (isAcc) {
-      // Clear previous poll if any
+      setAcceptanceSync({ status: 'syncing', fileId: null, error: null });
+    } else {
+      setEmissionSync({ status: 'syncing', fileId: null, error: null });
+    }
+
+    // Increment generation ID and clear previous polling for this slot
+    const currentGen = (generationRef.current[isAcc ? "acceptance" : "emission"] += 1);
+
+    if (isAcc) {
       if (activePollsRef.current.acceptance) {
         clearTimeout(activePollsRef.current.acceptance);
         activePollsRef.current.acceptance = undefined;
       }
-      setAcceptanceLoading(true);
-      setAcceptanceError(null);
-      setAcceptanceProgress(0);
-      setAcceptanceLoadingMessage("Uploading video to server...");
     } else {
-      // Clear previous poll if any
       if (activePollsRef.current.emission) {
         clearTimeout(activePollsRef.current.emission);
         activePollsRef.current.emission = undefined;
       }
-      setEmissionLoading(true);
-      setEmissionError(null);
-      setEmissionProgress(0);
-      setEmissionLoadingMessage("Uploading video to server...");
+    }
+
+    if (!isSilentBackground) {
+      if (isAcc) {
+        setAcceptanceLoading(true);
+        setAcceptanceError(null);
+        setAcceptanceProgress(0);
+        setAcceptanceLoadingMessage("Uploading video to server...");
+      } else {
+        setEmissionLoading(true);
+        setEmissionError(null);
+        setEmissionProgress(0);
+        setEmissionLoadingMessage("Uploading video to server...");
+      }
     }
 
     const formData = new FormData();
@@ -864,6 +896,19 @@ export const SyncDualPlayer: React.FC = () => {
       const data = await response.json();
       const fileId = data.file_id;
 
+      if (currentGen !== generationRef.current[isAcc ? "acceptance" : "emission"]) {
+        // Cleanup the orphaned file on backend
+        try {
+          const delRes = await fetch(`/api/v1/files/${fileId}`, { method: 'DELETE' });
+          if (!delRes.ok) {
+            console.error(`Orphan file cleanup failed. HTTP Status: ${delRes.status}`);
+          }
+        } catch (err) {
+          console.error("Network error during orphan file cleanup:", err);
+        }
+        return; // File was replaced during upload
+      }
+
       // Start asynchronous background transcode polling
       startedPolling = true;
       const startTime = Date.now();
@@ -876,28 +921,41 @@ export const SyncDualPlayer: React.FC = () => {
           }
           const fileStatus = await statusRes.json();
 
+          if (currentGen !== generationRef.current[isAcc ? "acceptance" : "emission"]) {
+            return; // File was replaced during polling
+          }
+
           if (fileStatus.is_processed) {
             // Processing success!
+            const playbackUrl = (() => {
+              if (isSilentBackground && silentUrl) return silentUrl;
+              const apiBase = '';
+              return `${apiBase}/api/v1/files/stream/${fileId}`;
+            })();
+
             const newFile: VideoFile = {
-              url: (() => {
-                // Use REACT_APP_API_URL env var (set at startup per environment)
-                // LIVE: http://localhost:8001, DEV: http://localhost:8002
-                const apiBase = '';
-                return `${apiBase}/api/v1/files/stream/${fileId}`;
-              })(),
+              url: playbackUrl,
               name: file.name,
               size: file.size,
-              isLocal: false,
+              isLocal: playbackUrl.startsWith("blob:"),
               fileId: fileId,
               conversionTime: fileStatus.file_metadata?.conversion_time,
             };
 
             if (isAcc) {
-              cleanUpFile(acceptanceFile);
+              setAcceptanceSync({ status: 'server', fileId: fileId, error: null });
+            } else {
+              setEmissionSync({ status: 'server', fileId: fileId, error: null });
+            }
+
+            if (isAcc) {
+              if (!isSilentBackground) cleanUpFile(acceptanceFile);
               setAcceptanceFile(newFile);
-              setAcceptanceLoading(false);
-              setAcceptanceProgress(null);
-              setAcceptanceLoadingMessage("");
+              if (!isSilentBackground) {
+                setAcceptanceLoading(false);
+                setAcceptanceProgress(null);
+                setAcceptanceLoadingMessage("");
+              }
               
               const availableTabs = copydeckData?.languages || [];
               const matchResult = detectLanguageFromFilename(newFile.name, availableTabs);
@@ -915,11 +973,13 @@ export const SyncDualPlayer: React.FC = () => {
                 activePollsRef.current.acceptance = undefined;
               }
             } else {
-              cleanUpFile(emissionFile);
+              if (!isSilentBackground) cleanUpFile(emissionFile);
               setEmissionFile(newFile);
-              setEmissionLoading(false);
-              setEmissionProgress(null);
-              setEmissionLoadingMessage("");
+              if (!isSilentBackground) {
+                setEmissionLoading(false);
+                setEmissionProgress(null);
+                setEmissionLoadingMessage("");
+              }
               if (activePollsRef.current.emission) {
                 clearTimeout(activePollsRef.current.emission);
                 activePollsRef.current.emission = undefined;
@@ -954,8 +1014,10 @@ export const SyncDualPlayer: React.FC = () => {
         } catch (pollErr: any) {
           console.error(`Error during status polling ${type}:`, pollErr);
           const errorMsg = pollErr.message || "Video file transcoding error.";
+
           if (isAcc) {
-            setAcceptanceError(errorMsg);
+            setAcceptanceSync({ status: 'error', fileId: null, error: errorMsg });
+            if (!isSilentBackground) setAcceptanceError(errorMsg);
             setAcceptanceLoading(false);
             setAcceptanceProgress(null);
             setAcceptanceLoadingMessage("");
@@ -984,12 +1046,18 @@ export const SyncDualPlayer: React.FC = () => {
       }
 
     } catch (err: any) {
+      if (currentGen !== generationRef.current[isAcc ? "acceptance" : "emission"]) {
+        return; // Ignore errors if file was replaced
+      }
       console.error(`Upload error/file processing ${type}:`, err);
       const errorMsg = err.message || "Failed to upload and process video.";
+
       if (isAcc) {
-        setAcceptanceError(errorMsg);
+        setAcceptanceSync({ status: 'error', fileId: null, error: errorMsg });
+        if (!isSilentBackground) setAcceptanceError(errorMsg);
       } else {
-        setEmissionError(errorMsg);
+        setEmissionSync({ status: 'error', fileId: null, error: errorMsg });
+        if (!isSilentBackground) setEmissionError(errorMsg);
       }
     } finally {
       // If we failed before polling started, clear loading state immediately
@@ -1029,6 +1097,7 @@ export const SyncDualPlayer: React.FC = () => {
       };
 
       if (isAcc) {
+        setAcceptanceRawFile(file);
         cleanUpFile(acceptanceFile);
         setAcceptanceFile(newFile);
         setAcceptanceError(null);
@@ -1044,12 +1113,21 @@ export const SyncDualPlayer: React.FC = () => {
           setSelectedCopydeckLanguage(matchResult.detectedTab);
         }
       } else {
+        setEmissionRawFile(file);
         cleanUpFile(emissionFile);
         setEmissionFile(newFile);
         setEmissionError(null);
       }
+
+      // TRIGGER BACKGROUND UPLOAD TO FETCH fileId SILENTLY
+      uploadAndProcess(file, type, true, localUrl);
     } else {
       // MXF or ProRes MOV: Needs backend transcoding
+      if (isAcc) {
+        setAcceptanceRawFile(file);
+      } else {
+        setEmissionRawFile(file);
+      }
       uploadAndProcess(file, type);
     }
   };
@@ -2602,26 +2680,18 @@ export const SyncDualPlayer: React.FC = () => {
     };
   }, [acceptanceFile, emissionFile, isPlaying, acceptanceTrim, emissionTrim]);
 
-  // Clean up Object URLs and active polling timeouts when component unmounts
+  // Clean up active polling timeouts when component unmounts
   useEffect(() => {
-    const currentPolls = activePollsRef.current;
     return () => {
-      // Note: We DO NOT call cleanUpFile() here because React StrictMode 
-      // unmounts and remounts immediately, which would prematurely revoke 
-      // the Blob URLs while they are still in state.
-      // Old files are already properly cleaned up in handleDrop/uploadAndProcess.
-      
       // Clear all active background timeouts
-      if (currentPolls.acceptance) {
-        clearTimeout(currentPolls.acceptance);
+      if (activePollsRef.current.acceptance) {
+        clearTimeout(activePollsRef.current.acceptance);
       }
-      if (currentPolls.emission) {
-        clearTimeout(currentPolls.emission);
+      if (activePollsRef.current.emission) {
+        clearTimeout(activePollsRef.current.emission);
       }
-      setAcceptanceProgress(null);
-      setEmissionProgress(null);
     };
-  }, [acceptanceFile, emissionFile]);
+  }, []);
 
   // Format MM:SS for timeline
   // Format MM:SS for timeline
@@ -3805,14 +3875,26 @@ export const SyncDualPlayer: React.FC = () => {
             </button>
           </div>
 
-          <div className="flex bg-black/20 rounded-lg p-1 relative border-l border-white/20 ml-2 pl-3">
-             <button
-                onClick={handleDeepAudioClick}
-                className="relative z-10 px-4 py-1.5 text-xs font-semibold rounded-md transition-colors text-white bg-blue-600 hover:bg-blue-500 shadow-sm border border-blue-400/50"
-                title="Stage 1E: Zaawansowana analiza audio (Demucs/Whisper)"
-             >
-                Deep Audio Analysis
-             </button>
+          <div className="flex flex-col items-start ml-2 pl-3 border-l border-white/20">
+            {deepAudioInlineError && (
+              <div className="text-red-400 text-xs mb-2 leading-tight flex items-center gap-3">
+                <span className="font-semibold">{deepAudioInlineError}</span>
+              </div>
+            )}
+            <div className="flex bg-black/20 rounded-lg p-1 relative">
+               <button
+                  onClick={handleDeepAudioClick}
+                  disabled={acceptanceSync.status === 'syncing' || emissionSync.status === 'syncing'}
+                  className={`relative z-10 px-4 py-1.5 text-xs font-semibold rounded-md transition-colors text-white shadow-sm border ${
+                    (acceptanceSync.status === 'syncing' || emissionSync.status === 'syncing')
+                      ? "bg-gray-500 border-gray-400 opacity-50 cursor-not-allowed"
+                      : "bg-blue-600 hover:bg-blue-500 border-blue-400/50"
+                  }`}
+                  title={(acceptanceSync.status === 'syncing' || emissionSync.status === 'syncing') ? "Przygotowywanie..." : "Stage 1E: Zaawansowana analiza audio (Demucs/Whisper)"}
+               >
+                  {(acceptanceSync.status === 'syncing' || emissionSync.status === 'syncing') ? "Przygotowywanie..." : "Deep Audio Analysis"}
+               </button>
+            </div>
           </div>
 
           {isSinglePlayerMode && (
@@ -4452,10 +4534,28 @@ export const SyncDualPlayer: React.FC = () => {
               )}
             </div>
             {acceptanceFile && (
-              <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+              <span className={`flex items-center gap-2 px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
                 isSinglePlayerMode ? 'bg-[#350F9C]/10 text-[#350F9C]' : 'bg-gray-200 text-gray-700 dark:bg-gray-800 dark:text-gray-300'
               }`}>
-                {acceptanceFile.isLocal ? "Local" : "Server"}
+                {acceptanceSync.status === 'error' && (
+                  <span className="flex items-center gap-1 text-red-500 bg-red-500/10 px-1.5 py-0.5 rounded">
+                    <span title={acceptanceSync.error || "Upload error"}>⚠️ BŁĄD</span>
+                    <button
+                      onClick={() => acceptanceRawFile && uploadAndProcess(acceptanceRawFile, "acceptance", acceptanceFile?.isLocal ?? false, acceptanceFile?.url)}
+                      className="underline font-bold hover:text-red-400 ml-1">
+                      RETRY
+                    </button>
+                  </span>
+                )}
+                {acceptanceSync.status === 'syncing' && (
+                  <span className="text-blue-500 flex items-center gap-1" title="Synchronizacja w tle...">
+                    <div className="w-2.5 h-2.5 border-2 border-current border-t-transparent rounded-full animate-spin"></div> SYNC
+                  </span>
+                )}
+                {acceptanceSync.status === 'server' && (
+                  <span className="text-green-600" title="Gotowy do analizy (Serwer)">☁️ SERVER</span>
+                )}
+                {acceptanceSync.status === 'local' && "LOCAL"}
               </span>
             )}
           </div>
@@ -4514,7 +4614,7 @@ export const SyncDualPlayer: React.FC = () => {
                   draggable={false}
                   onDragStart={(e) => e.preventDefault()}
                   onError={() => {
-                    setAcceptanceError("Failed to load video stream from server (np. file expired in DEV mode or connection lost).");
+                    setAcceptanceError("Video Playback Error: Failed to load the video. The file might be corrupted, unsupported by your browser, or the streaming connection was lost.");
                   }}
                 />
               )
@@ -4631,8 +4731,26 @@ export const SyncDualPlayer: React.FC = () => {
               )}
             </div>
             {emissionFile && (
-              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-gray-200 text-gray-700 dark:bg-gray-800 dark:text-gray-300 uppercase">
-                {emissionFile.isLocal ? "Local" : "Server"}
+              <span className="flex items-center gap-2 px-2 py-0.5 rounded text-[10px] font-bold bg-gray-200 text-gray-700 dark:bg-gray-800 dark:text-gray-300 uppercase">
+                {emissionSync.status === 'error' && (
+                  <span className="flex items-center gap-1 text-red-500 bg-red-500/10 px-1.5 py-0.5 rounded">
+                    <span title={emissionSync.error || "Upload error"}>⚠️ BŁĄD</span>
+                    <button
+                      onClick={() => emissionRawFile && uploadAndProcess(emissionRawFile, "emission", emissionFile?.isLocal ?? false, emissionFile?.url)}
+                      className="underline font-bold hover:text-red-400 ml-1">
+                      RETRY
+                    </button>
+                  </span>
+                )}
+                {emissionSync.status === 'syncing' && (
+                  <span className="text-blue-500 flex items-center gap-1" title="Synchronizacja w tle...">
+                    <div className="w-2.5 h-2.5 border-2 border-current border-t-transparent rounded-full animate-spin"></div> SYNC
+                  </span>
+                )}
+                {emissionSync.status === 'server' && (
+                  <span className="text-green-600" title="Gotowy do analizy (Serwer)">☁️ SERVER</span>
+                )}
+                {emissionSync.status === 'local' && "LOCAL"}
               </span>
             )}
           </div>
@@ -4691,7 +4809,7 @@ export const SyncDualPlayer: React.FC = () => {
                   draggable={false}
                   onDragStart={(e) => e.preventDefault()}
                   onError={() => {
-                    setEmissionError("Failed to load video stream from server (np. file expired in DEV mode or connection lost).");
+                    setEmissionError("Video Playback Error: Failed to load the video. The file might be corrupted, unsupported by your browser, or the streaming connection was lost.");
                   }}
                 />
               )
@@ -5446,19 +5564,13 @@ export const SyncDualPlayer: React.FC = () => {
         errorMessage={installError}
       />
 
-      <DeepAudioResults 
-        isOpen={isDeepAudioResultsOpen}
-        onClose={() => {
-          setIsDeepAudioResultsOpen(false);
-          setAnalysisStatus('idle');
-          clearAnalysisPolling(); // Zatrzymuje timer 180s i polling w tle, gdy user ręcznie zamknie panel
-        }}
-        status={analysisStatus}
-        results={deepAudioResults}
-        errorMessage={analysisError}
+      <DeepAudioPanel state={deepAudioState} />
+      <AudioWaveformComparison
+        acceptanceFileId={acceptanceSync.fileId}
+        emissionFileId={emissionSync.fileId}
       />
+      <TranscriptComparisonTable state={deepAudioState} />
 
     </div>
   );
 };
-      <TranscriptComparisonTable state={deepAudioState} />

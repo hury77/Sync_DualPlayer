@@ -16,17 +16,42 @@ export interface DeepAudioData {
   processing_time_seconds: number;
 }
 
+export interface DeepAudioStateNode {
+  fileId: number | null;
+  status: AnalysisStatus;
+  phase: string | null;
+  message: string | null;
+  results: DeepAudioData | null;
+  error: string | null;
+}
+
+export interface DeepAudioState {
+  acceptance: DeepAudioStateNode;
+  emission: DeepAudioStateNode;
+}
+
+const defaultNodeState: DeepAudioStateNode = {
+  fileId: null,
+  status: 'idle',
+  phase: null,
+  message: null,
+  results: null,
+  error: null,
+};
+
 export function useDeepAudio() {
   const [installStatus, setInstallStatus] = useState<InstallStatus>('idle');
   const [installProgressMessage, setInstallProgressMessage] = useState<string>('');
   const [installError, setInstallError] = useState<string | null>(null);
 
-  const [analysisStatus, setAnalysisStatus] = useState<AnalysisStatus>('idle');
-  const [analysisError, setAnalysisError] = useState<string | null>(null);
-  const [results, setResults] = useState<DeepAudioData | null>(null);
+  const [deepAudioState, setDeepAudioState] = useState<DeepAudioState>({
+    acceptance: { ...defaultNodeState },
+    emission: { ...defaultNodeState }
+  });
   
   const installPollingRef = useRef<number | null>(null);
-  const analysisPollingRef = useRef<number | null>(null);
+  const acceptancePollingRef = useRef<number | null>(null);
+  const emissionPollingRef = useRef<number | null>(null);
 
   const clearInstallPolling = () => {
     if (installPollingRef.current) {
@@ -35,21 +60,28 @@ export function useDeepAudio() {
     }
   };
 
-  const clearAnalysisPolling = () => {
-    if (analysisPollingRef.current) {
-      window.clearInterval(analysisPollingRef.current);
-      analysisPollingRef.current = null;
+  const clearAnalysisPolling = (variant: 'acceptance' | 'emission') => {
+    const ref = variant === 'acceptance' ? acceptancePollingRef : emissionPollingRef;
+    if (ref.current) {
+      window.clearInterval(ref.current);
+      ref.current = null;
     }
   };
 
-  // 1. Sprawdzenie statusu instalacji (na żądanie)
+  const updateNode = (variant: 'acceptance' | 'emission', updates: Partial<DeepAudioStateNode>) => {
+    setDeepAudioState(prev => ({
+      ...prev,
+      [variant]: { ...prev[variant], ...updates }
+    }));
+  };
+
   const checkInstallStatus = async () => {
     setInstallStatus('checking');
     try {
       const res = await fetch('/api/v1/deep-audio/install');
       if (res.ok) {
         const data = await res.json();
-        setInstallStatus(data.status);
+        setInstallStatus(data.status === 'completed' ? 'installed' : data.status);
         if (data.status === 'installing') {
           setInstallProgressMessage(data.message || 'Instalowanie...');
           startInstallPolling();
@@ -64,7 +96,6 @@ export function useDeepAudio() {
     }
   };
 
-  // 2. Wymuszenie instalacji
   const startInstall = async () => {
     setInstallStatus('installing');
     setInstallProgressMessage('Rozpoczynanie pobierania...');
@@ -104,42 +135,58 @@ export function useDeepAudio() {
           }
         }
       } catch (e) {
-        // Zignoruj pojedynczy blad sieci podczas pollingu
+        // Zignoruj pojedynczy blad sieci
       }
     }, 2000);
   };
 
-  // 3. Rozpoczęcie analizy audio
-  const startAnalysis = async (fileId: number) => {
-    setAnalysisStatus('processing');
-    setAnalysisError(null);
-    setResults(null);
-    
-    try {
-      const res = await fetch(`/api/v1/files/${fileId}/deep-audio`, { method: 'POST' });
-      if (res.ok) {
-        startAnalysisPolling(fileId);
-      } else {
-        const data = await res.json();
-        setAnalysisStatus('error');
-        setAnalysisError(data.detail || 'Nie udało się rozpocząć analizy.');
-      }
-    } catch (e) {
-      setAnalysisStatus('error');
-      setAnalysisError('Błąd sieci podczas startu analizy.');
+  const startAnalysis = async (acceptanceFileId: number | null, emissionFileId: number | null) => {
+    if (!acceptanceFileId && !emissionFileId) {
+      updateNode('acceptance', { status: 'error', error: 'Brak ID pliku do analizy.' });
+      updateNode('emission', { status: 'error', error: 'Brak ID pliku do analizy.' });
+      return;
+    }
+
+    if (acceptanceFileId) {
+      updateNode('acceptance', { fileId: acceptanceFileId, status: 'processing', message: 'Rozpoczynanie...', error: null, results: null });
+      triggerAnalysis(acceptanceFileId, 'acceptance');
+    } else {
+      updateNode('acceptance', { status: 'error', error: 'Brak ID pliku (oczekiwano synchronizacji z serwerem).' });
+    }
+
+    if (emissionFileId) {
+      updateNode('emission', { fileId: emissionFileId, status: 'processing', message: 'Oczekiwanie w kolejce...', error: null, results: null });
+      triggerAnalysis(emissionFileId, 'emission');
+    } else {
+      updateNode('emission', { status: 'error', error: 'Brak ID pliku (oczekiwano synchronizacji z serwerem).' });
     }
   };
 
-  const startAnalysisPolling = (fileId: number) => {
-    clearAnalysisPolling();
-    const startTime = Date.now();
-    const TIMEOUT_MS = 180000; // 3 minuty timeout dla Whisper + Demucs (kolejkowane)
+  const triggerAnalysis = async (fileId: number, variant: 'acceptance' | 'emission') => {
+    try {
+      const res = await fetch(`/api/v1/files/${fileId}/deep-audio`, { method: 'POST' });
+      if (res.ok) {
+        startAnalysisPolling(fileId, variant);
+      } else {
+        const data = await res.json();
+        updateNode(variant, { status: 'error', error: data.detail || 'Nie udało się rozpocząć analizy.' });
+      }
+    } catch (e) {
+      updateNode(variant, { status: 'error', error: 'Błąd sieci podczas startu analizy.' });
+    }
+  };
 
-    analysisPollingRef.current = window.setInterval(async () => {
+  const startAnalysisPolling = (fileId: number, variant: 'acceptance' | 'emission') => {
+    clearAnalysisPolling(variant);
+    const startTime = Date.now();
+    const TIMEOUT_MS = 180000;
+
+    const ref = variant === 'acceptance' ? acceptancePollingRef : emissionPollingRef;
+
+    ref.current = window.setInterval(async () => {
       if (Date.now() - startTime > TIMEOUT_MS) {
-        setAnalysisStatus('error');
-        setAnalysisError('Analiza trwa zbyt długo, przekroczono limit czasu.');
-        clearAnalysisPolling();
+        updateNode(variant, { status: 'error', error: 'Analiza trwa zbyt długo, przekroczono limit czasu.' });
+        clearAnalysisPolling(variant);
         return;
       }
 
@@ -148,26 +195,26 @@ export function useDeepAudio() {
         if (res.ok) {
           const data = await res.json();
           if (data.status === 'completed') {
-            setResults(data.data);
-            setAnalysisStatus('completed');
-            clearAnalysisPolling();
+            updateNode(variant, { status: 'completed', results: data.data, phase: data.phase, message: data.message });
+            clearAnalysisPolling(variant);
           } else if (data.status === 'failed') {
-            setAnalysisStatus('error');
-            setAnalysisError(data.error || 'Analiza zakończyła się błędem wewnętrznym.');
-            clearAnalysisPolling();
+            updateNode(variant, { status: 'error', error: data.error || 'Analiza zakończyła się błędem wewnętrznym.', phase: data.phase });
+            clearAnalysisPolling(variant);
+          } else if (data.status === 'processing') {
+            updateNode(variant, { status: 'processing', phase: data.phase, message: data.message || 'Przetwarzanie...' });
           }
         }
       } catch (e) {
-        // Ignoruj pomniejsze błędy połączenia
+        // Ignoruj pomniejsze błędy
       }
     }, 2000);
   };
 
-  // Wyczysc pollingi na odmontowanie
   useEffect(() => {
     return () => {
       clearInstallPolling();
-      clearAnalysisPolling();
+      clearAnalysisPolling('acceptance');
+      clearAnalysisPolling('emission');
     };
   }, []);
 
@@ -179,11 +226,8 @@ export function useDeepAudio() {
     startInstall,
     setInstallStatus,
     
-    analysisStatus,
-    analysisError,
-    results,
+    deepAudioState,
     startAnalysis,
-    setAnalysisStatus,
-    clearAnalysisPolling
+    setDeepAudioState,
   };
 }

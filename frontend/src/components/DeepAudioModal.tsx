@@ -70,6 +70,13 @@ export default function DeepAudioModal({
             <p className="text-sm text-gray-300 font-medium">{progressMessage}</p>
           </div>
         )}
+
+        {status === 'checking' && (
+          <div className="py-6 flex flex-col items-center justify-center space-y-4">
+            <div className="w-10 h-10 border-4 border-[#333] border-t-yellow-500 rounded-full animate-spin"></div>
+            <p className="text-sm text-gray-300 font-medium">Sprawdzanie statusu instalacji...</p>
+          </div>
+        )}
         
         {status === 'error' && (
           <div className="space-y-4">
@@ -91,6 +98,13 @@ export default function DeepAudioModal({
                 Spróbuj ponownie
               </button>
             </div>
+          </div>
+        )}
+
+        {status !== 'not_installed' && status !== 'installing' && status !== 'checking' && status !== 'error' && (
+          <div className="py-6 flex flex-col items-center justify-center space-y-4">
+            <div className="w-10 h-10 border-4 border-[#333] border-t-gray-500 rounded-full animate-spin"></div>
+            <p className="text-sm text-gray-300 font-medium">Przetwarzanie...</p>
           </div>
         )}
       </div>

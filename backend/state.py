@@ -20,3 +20,5 @@ deep_audio_install_status = {
     "error": None
 }
 deep_audio_install_lock = threading.Lock()
+
+deep_audio_state_lock = threading.Lock()
