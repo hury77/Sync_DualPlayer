@@ -20,9 +20,32 @@ CACHE_DIR.mkdir(parents=True, exist_ok=True)
 FLAG_FILE = Path(__file__).parent / ".cache" / "deep_audio_installed.flag"
 PERF_LOG_FILE = Path(__file__).parent / ".cache" / "deep_audio_performance_log.jsonl"
 
+def validate_deep_audio_runtime() -> bool:
+    try:
+        import torch
+        import demucs
+        import faster_whisper
+        import tqdm
+        
+        res = subprocess.run([sys.executable, "-m", "pip", "check"], capture_output=True, text=True)
+        if res.returncode != 0:
+            logger.warning(f"Runtime validation: pip check failed: {res.stdout}")
+            return False
+            
+        return True
+    except Exception as e:
+        logger.warning(f"Runtime validation failed: {e}")
+        return False
+
 def get_install_status() -> Dict[str, Any]:
     with state.deep_audio_install_lock:
         if FLAG_FILE.exists():
+            if not validate_deep_audio_runtime():
+                FLAG_FILE.unlink(missing_ok=True)
+                state.deep_audio_install_status["status"] = "not_installed"
+                state.deep_audio_install_status["message"] = None
+                state.deep_audio_install_status["error"] = "Wykryto niespójność środowiska. Wymagana ponowna instalacja."
+                return state.deep_audio_install_status.copy()
             return {"status": "completed", "message": "Deep Audio is installed", "error": None}
         return state.deep_audio_install_status.copy()
 
@@ -46,13 +69,23 @@ async def install_deep_audio_background():
         process = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
             env=env
         )
-        stdout, stderr = await process.communicate()
+        
+        while True:
+            line = await process.stdout.readline()
+            if not line:
+                break
+            text = line.decode('utf-8', errors='ignore').strip()
+            if "Downloading" in text or "Installing collected packages:" in text:
+                with state.deep_audio_install_lock:
+                    state.deep_audio_install_status["message"] = text
+                    
+        await process.wait()
         
         if process.returncode != 0:
-            raise RuntimeError(f"pip install failed with code {process.returncode}:\n{stderr.decode('utf-8', errors='ignore')}")
+            raise RuntimeError(f"pip install failed with code {process.returncode}")
 
         # Testowy import by potwierdzić
         test_script = "import torch; import demucs; import faster_whisper; print('OK')"
@@ -91,7 +124,7 @@ async def install_deep_audio_background():
             
         with state.deep_audio_install_lock:
             state.deep_audio_install_status["status"] = "failed"
-            state.deep_audio_install_status["error"] = str(e)
+            state.deep_audio_install_status["error"] = "Nie udało się przygotować modułu Deep Audio. Spróbuj ponownie lub skontaktuj się z administratorem."
 
 
 def extract_audio_duration(file_path: str) -> float:
@@ -107,7 +140,58 @@ def extract_audio_duration(file_path: str) -> float:
         return float(h)*3600 + float(m)*60 + float(s)
     return 0.0
 
-def run_deep_audio_analysis_sync(file_path: str) -> Dict[str, Any]:
+def update_deep_audio_state(file_id: int, status: str = None, phase: str = None, message: str = None, data: Any = None, error: str = None):
+    if file_id is not None:
+        with state.deep_audio_state_lock:
+            if file_id in state.files_db:
+                current = state.files_db[file_id].get("deep_audio", {})
+                state.files_db[file_id]["deep_audio"] = {
+                    **current,
+                    "status": status if status is not None else current.get("status"),
+                    "phase": phase if phase is not None else current.get("phase"),
+                    "message": message if message is not None else current.get("message"),
+                    "data": data if data is not None else current.get("data"),
+                    "error": error if error is not None else current.get("error")
+                }
+
+def extract_audio_if_needed(file_path: str, file_id: int = None) -> tuple[str, str]:
+    ext = os.path.splitext(file_path)[1].lower()
+    temp_wav_path = None
+    audio_load_path = file_path
+    
+    if ext not in ['.wav', '.flac', '.ogg']:
+        update_deep_audio_state(file_id, phase="preparing_audio", message="Wyodrębnianie ścieżki audio z wideo...")
+        import tempfile
+        import imageio_ffmpeg
+        import subprocess
+        temp_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+        temp_wav_path = temp_file.name
+        temp_file.close()
+        
+        exe = imageio_ffmpeg.get_ffmpeg_exe()
+        try:
+            res = subprocess.run(
+                [exe, "-y", "-i", file_path, "-vn", "-acodec", "pcm_s16le", "-ar", "44100", temp_wav_path],
+                capture_output=True, text=True, timeout=120
+            )
+            if res.returncode != 0:
+                logger.error(f"FFmpeg extraction failed: {res.stderr}")
+                raise RuntimeError("Nie udało się przeanalizować pliku audio. Plik może być uszkodzony albo nie zawierać obsługiwanej ścieżki audio.")
+            audio_load_path = temp_wav_path
+        except subprocess.TimeoutExpired:
+            logger.error(f"FFmpeg extraction timed out for file_id {file_id}")
+            if temp_wav_path and os.path.exists(temp_wav_path):
+                os.unlink(temp_wav_path)
+            raise RuntimeError("Przekroczono czas oczekiwania na ekstrakcję audio.")
+        except Exception:
+            if temp_wav_path and os.path.exists(temp_wav_path):
+                os.unlink(temp_wav_path)
+            raise
+        
+    return audio_load_path, temp_wav_path
+
+def run_deep_audio_analysis_sync(file_path: str, file_id: int = None) -> Dict[str, Any]:
+    update_deep_audio_state(file_id, status="processing", phase="init", message="Rozpoczęcie analizy (odczyt długości wideo)...")
     duration = extract_audio_duration(file_path)
     if duration > 120.0:
         raise ValueError(f"Plik audio przekracza limit 120 sekund (trwa {duration:.1f}s). Analiza przerwana.")
@@ -121,57 +205,66 @@ def run_deep_audio_analysis_sync(file_path: str) -> Dict[str, Any]:
     import certifi
     os.environ["SSL_CERT_FILE"] = certifi.where()
     
-    # 1. Transkrypcja Whisper base z Silero VAD jako pre-processing
-    model = WhisperModel("base", device="cpu", compute_type="int8")
-    segments, info = model.transcribe(
-        file_path, 
-        beam_size=5,
-        vad_filter=True,
-        vad_parameters=dict(min_silence_duration_ms=1000)
-    )
-    transcription = []
-    for segment in segments:
-        transcription.append({
-            "start": segment.start,
-            "end": segment.end,
-            "text": segment.text
-        })
+    temp_wav_path = None
+    try:
+        audio_load_path, temp_wav_path = extract_audio_if_needed(file_path, file_id)
+
+        # 1. Transkrypcja Whisper base z Silero VAD jako pre-processing
+        update_deep_audio_state(file_id, phase="whisper", message="VAD: Wykrywanie mowy (Silero) oraz transkrypcja AI (Faster-Whisper)...")
+        model = WhisperModel("base", device="cpu", compute_type="int8")
+        segments, info = model.transcribe(
+            audio_load_path, 
+            beam_size=5,
+            vad_filter=True,
+            vad_parameters=dict(min_silence_duration_ms=1000)
+        )
+        transcription = []
+        for segment in segments:
+            transcription.append({
+                "start": segment.start,
+                "end": segment.end,
+                "text": segment.text
+            })
+            
+        # Zwolnij pamiec po Whisper (okolo 750MB) przed ladowaniem Demucs (1.2GB)
+        del model
+        import gc
+        gc.collect()
+            
+        # 2. Separacja Demucs using API
+        update_deep_audio_state(file_id, phase="demucs_load", message="Demucs: Pobieranie i wczytywanie modeli do separacji ścieżek...")
+        import torch
+        from demucs.pretrained import get_model
+        from demucs.apply import apply_model
+        from demucs.audio import AudioFile, save_audio
         
-    # Zwolnij pamiec po Whisper (okolo 750MB) przed ladowaniem Demucs (1.2GB)
-    del model
-    import gc
-    gc.collect()
+        demucs_out_dir = Path(__file__).parent / "separated" / "htdemucs" / Path(file_path).stem
+        demucs_out_dir.mkdir(parents=True, exist_ok=True)
         
-    # 2. Separacja Demucs using API
-    import torch
-    from demucs.pretrained import get_model
-    from demucs.apply import apply_model
-    from demucs.audio import AudioFile, save_audio
-    
-    demucs_out_dir = Path(__file__).parent / "separated" / "htdemucs" / Path(file_path).stem
-    demucs_out_dir.mkdir(parents=True, exist_ok=True)
-    
-    
-    
-    model = get_model('htdemucs')
-    model.cpu()
-    model.eval()
-    
-    import torchaudio
-    wav, sr = torchaudio.load(file_path)
-    if sr != model.samplerate:
-        wav = torchaudio.transforms.Resample(sr, model.samplerate)(wav)
-    if wav.shape[0] == 1 and model.audio_channels == 2:
-        wav = wav.repeat(2, 1)
-    
-    ref = wav.mean(0)
-    wav = (wav - ref.mean()) / (ref.std() + 1e-8)
-    wav = wav.clone() # Fix for RuntimeError: unsupported operation
-    wav = wav[None]
-    
-    with torch.no_grad():
-        sources = apply_model(model, wav, device="cpu", split=True, overlap=0.25)[0]
-    sources = sources * ref.std() + ref.mean()
+        model = get_model('htdemucs')
+        model.cpu()
+        model.eval()
+        
+        import torchaudio
+        
+        wav, sr = torchaudio.load(audio_load_path)
+        if sr != model.samplerate:
+            wav = torchaudio.transforms.Resample(sr, model.samplerate)(wav)
+        if wav.shape[0] == 1 and model.audio_channels == 2:
+            wav = wav.repeat(2, 1)
+        
+        ref = wav.mean(0)
+        wav = (wav - ref.mean()) / (ref.std() + 1e-8)
+        wav = wav.clone() # Fix for RuntimeError: unsupported operation
+        wav = wav[None]
+        
+        update_deep_audio_state(file_id, phase="demucs_split", message="Demucs: Fizyczna separacja ścieżek audio (może potrwać dłuższą chwilę)...")
+        with torch.no_grad():
+            sources = apply_model(model, wav, device="cpu", split=True, overlap=0.25)[0]
+        sources = sources * ref.std() + ref.mean()
+    finally:
+        if temp_wav_path and os.path.exists(temp_wav_path):
+            os.unlink(temp_wav_path)
     
     # htdemucs outputs: drums, bass, other, vocals
     # Combine everything except vocals into 'no_vocals'
@@ -224,11 +317,7 @@ async def process_deep_audio_task(file_id: int, file_path: str):
     if file_id not in state.files_db:
         return
         
-    state.files_db[file_id]["deep_audio"] = {
-        "status": "processing",
-        "data": None,
-        "error": None
-    }
+    update_deep_audio_state(file_id, status="processing", phase="init", data=None, error=None)
     
     try:
         loop = asyncio.get_running_loop()
@@ -252,20 +341,16 @@ async def process_deep_audio_task(file_id: int, file_path: str):
                 
         # 3. Analiza - ograniczona przez semafor/lock do 1 na raz
         async with _analysis_lock:
-            result_data = await loop.run_in_executor(None, run_deep_audio_analysis_sync, file_path)
+            result_data = await loop.run_in_executor(None, run_deep_audio_analysis_sync, file_path, file_id)
         
         # 4. Zapisz cache
         with open(cache_file, "w", encoding="utf-8") as f:
             json.dump(result_data, f)
             
-        if file_id in state.files_db:
-            state.files_db[file_id]["deep_audio"]["status"] = "completed"
-            state.files_db[file_id]["deep_audio"]["data"] = result_data
+        update_deep_audio_state(file_id, status="completed", phase="completed", data=result_data)
             
     except Exception as e:
         logger.error(f"Deep audio analysis failed for file_id {file_id}: {e}")
         traceback.print_exc()
-        if file_id in state.files_db:
-            state.files_db[file_id]["deep_audio"]["status"] = "failed"
-            state.files_db[file_id]["deep_audio"]["error"] = str(e)
+        update_deep_audio_state(file_id, status="failed", phase="failed", error="Nie udało się przeanalizować pliku audio. Plik może być uszkodzony albo nie zawierać obsługiwanej ścieżki audio.")
 
